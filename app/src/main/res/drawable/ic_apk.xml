@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Зеленый круг -->
+    <path
+        android:fillColor="#8BC34A"
+        android:pathData="M12,2A10,10 0 1,0 22,12A10,10 0 0,0 12,2zm1,17.93V20h-2v-0.07A8.06,8.06 0 0,1 4.07,13H6v-2H4.07A8.06,8.06 0 0,1 11,4.07V6h2V4.07A8.06,8.06 0 0,1 19.93,11H18v2h1.93A8.06,8.06 0 0,1 13,19.93z"/>
+    <!-- Белый круг (r=4, cx=12, cy=12) -->
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M12,8a4,4 0 1,1 0,8a4,4 0 1,1 0,-8"/>
+    <!-- "APK" черта -->
+    <path
+        android:fillColor="#8BC34A"
+        android:pathData="M10,13h4v-2h-4z"/>
+</vector>
