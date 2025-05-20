@@ -51,6 +51,8 @@ dependencies {
     implementation(libs.androidx.material)
     implementation(libs.ui)
     implementation(libs.ui.tooling.preview)
+    //Compose
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     // Firebase
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.storage.ktx)

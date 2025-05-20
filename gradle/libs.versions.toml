@@ -1,6 +1,6 @@
 [versions]
 activityComposeVersion = "1.9.0"
-agp = "8.8.2"
+agp = "8.10.0"
 coreKtxVersion = "1.12.0"
 firebaseBom = "33.13.0"
 kotlin = "2.0.0"
@@ -12,6 +12,7 @@ lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.10.1"
 composeBom = "2024.04.01"
 lifecycleRuntimeKtxVersion = "2.7.0"
+lifecycleViewmodelCompose = "2.8.0"
 material = "1.6.7"
 ui = "1.6.7"
 uiToolingPreview = "1.6.7"
@@ -21,6 +22,7 @@ androidx-activity-compose-v190 = { module = "androidx.activity:activity-compose"
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-core-ktx-v1120 = { module = "androidx.core:core-ktx", version.ref = "coreKtxVersion" }
 androidx-lifecycle-runtime-ktx-v270 = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtxVersion" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycleViewmodelCompose" }
 androidx-material = { module = "androidx.compose.material:material", version.ref = "material" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-common-ktx = { module = "com.google.firebase:firebase-common-ktx" }
