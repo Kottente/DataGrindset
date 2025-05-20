@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "844272437712",
+    "project_id": "datagrindset",
+    "storage_bucket": "datagrindset.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:844272437712:android:865be7b2429515356011d5",
+        "android_client_info": {
+          "package_name": "com.example.datagrindset"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA8bJiI5dg5jwoeNMut4jmZoNmeRbLqATE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
