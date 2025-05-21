@@ -54,9 +54,10 @@ dependencies {
     implementation(libs.ui)
     implementation(libs.ui.tooling.preview)
     //Compose
+    implementation(libs.androidx.material.icons.core)
+    implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     // Firebase
-    //implementation(platform(libs.firebase.bom))
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.storage.ktx)
     implementation(libs.firebase.common.ktx)
@@ -69,6 +70,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.lifecycle.runtime.compose.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

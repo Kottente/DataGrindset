@@ -1,10 +1,12 @@
-package com.example.datagrindset
+package com.example.datagrindset.viewmodel
 
 import android.content.Context
 import android.net.Uri
 import android.webkit.MimeTypeMap // Required for MimeTypeMap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.datagrindset.CloudFile
+import com.example.datagrindset.CloudStorageService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow // Required for asSharedFlow
