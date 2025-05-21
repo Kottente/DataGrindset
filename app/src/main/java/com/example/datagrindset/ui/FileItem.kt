@@ -88,43 +88,44 @@ fun LocalFileItem(
     }
 }
 
-@Composable
-fun ProcessingStatusIndicator(status: ProcessingStatus) {
-    val (icon, color) = when (status) {
-        ProcessingStatus.PENDING -> Icons.Filled.HourglassEmpty to MaterialTheme.colorScheme.onSurfaceVariant
-        ProcessingStatus.PROCESSING -> Icons.Filled.Sync to MaterialTheme.colorScheme.secondary // Using Sync for rotating/processing
-        ProcessingStatus.SUCCESS -> Icons.Filled.CheckCircle to MaterialTheme.colorScheme.tertiary // Usually a green-ish color
-        ProcessingStatus.FAILED -> Icons.Filled.Error to MaterialTheme.colorScheme.error
-        ProcessingStatus.NONE -> return // Don't show an icon if not processed yet, or choose a default
-    }
-    Icon(imageVector = icon, contentDescription = "Status: $status", tint = color, modifier = Modifier.size(18.dp))
-}
 
-
-// Helper function to get an icon based on MIME type (basic example)
-fun getIconForMimeType(mimeType: String?): ImageVector {
-    return when (mimeType?.lowercase()) {
-        "text/csv" -> Icons.Filled.Description // Or a more specific CSV icon if you have one
-        "application/json" -> Icons.Filled.DataObject
-        "application/pdf" -> Icons.Filled.PictureAsPdf
-        "image/jpeg", "image/png" -> Icons.Filled.Image
-        else -> Icons.AutoMirrored.Filled.InsertDriveFile // Generic file icon
-    }
-}
-
-// Helper function to format file size
-fun formatFileSize(sizeInBytes: Long): String {
-    if (sizeInBytes < 1024) return "$sizeInBytes B"
-    val kb = sizeInBytes / 1024
-    if (kb < 1024) return "$kb KB"
-    val mb = kb / 1024
-    if (mb < 1024) return "$mb MB"
-    val gb = mb / 1024
-    return "$gb GB"
-}
-
-// Helper function to format date
-fun formatDate(timestamp: Long): String {
-    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) // e.g., May 20, 2025
-    return sdf.format(Date(timestamp))
-}
+//@Composable
+//fun ProcessingStatusIndicator(status: ProcessingStatus) {
+//    val (icon, color) = when (status) {
+//        ProcessingStatus.PENDING -> Icons.Filled.HourglassEmpty to MaterialTheme.colorScheme.onSurfaceVariant
+//        ProcessingStatus.PROCESSING -> Icons.Filled.Sync to MaterialTheme.colorScheme.secondary // Using Sync for rotating/processing
+//        ProcessingStatus.SUCCESS -> Icons.Filled.CheckCircle to MaterialTheme.colorScheme.tertiary // Usually a green-ish color
+//        ProcessingStatus.FAILED -> Icons.Filled.Error to MaterialTheme.colorScheme.error
+//        ProcessingStatus.NONE -> return // Don't show an icon if not processed yet, or choose a default
+//    }
+//    Icon(imageVector = icon, contentDescription = "Status: $status", tint = color, modifier = Modifier.size(18.dp))
+//}
+//
+//
+//// Helper function to get an icon based on MIME type (basic example)
+//fun getIconForMimeType(mimeType: String?): ImageVector {
+//    return when (mimeType?.lowercase()) {
+//        "text/csv" -> Icons.Filled.Description // Or a more specific CSV icon if you have one
+//        "application/json" -> Icons.Filled.DataObject
+//        "application/pdf" -> Icons.Filled.PictureAsPdf
+//        "image/jpeg", "image/png" -> Icons.Filled.Image
+//        else -> Icons.AutoMirrored.Filled.InsertDriveFile // Generic file icon
+//    }
+//}
+//
+//// Helper function to format file size
+//fun formatFileSize(sizeInBytes: Long): String {
+//    if (sizeInBytes < 1024) return "$sizeInBytes B"
+//    val kb = sizeInBytes / 1024
+//    if (kb < 1024) return "$kb KB"
+//    val mb = kb / 1024
+//    if (mb < 1024) return "$mb MB"
+//    val gb = mb / 1024
+//    return "$gb GB"
+//}
+//
+//// Helper function to format date
+//fun formatDate(timestamp: Long): String {
+//    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) // e.g., May 20, 2025
+//    return sdf.format(Date(timestamp))
+//}
