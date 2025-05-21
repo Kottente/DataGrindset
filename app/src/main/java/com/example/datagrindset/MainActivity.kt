@@ -1,43 +1,25 @@
 package com.example.datagrindset
 
-import android.content.ActivityNotFoundException
-import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import android.widget.Toast // For simple error messages
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.LaunchedEffect // Required for LaunchedEffect
-import androidx.lifecycle.viewmodel.compose.viewModel // For viewModel() delegate
-import com.example.datagrindset.ui.theme.DataGrindsetTheme
-import android.net.Uri // Ensure this is imported
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.lifecycle.ViewModelProvider
-import com.example.datagrindset.viewmodel.FileManagerViewModel
-
-
-
-
-import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.datagrindset.ui.LocalFileManagerScreen // Your new screen
-import com.example.datagrindset.ui.theme.DataGrindsetTheme
-import com.example.datagrindset.viewmodel.LocalFileManagerViewModel
-import com.example.datagrindset.viewmodel.LocalFileManagerViewModelFactory // If you use the factory
-
-
-
-import androidx.activity.compose.setContent
-
-import androidx.activity.viewModels
-import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavHost
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.example.datagrindset.ui.LocalFileManagerScreen
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
-
+import com.example.datagrindset.viewmodel.LocalFileManagerViewModel
+import com.example.datagrindset.viewmodel.LocalFileManagerViewModelFactory
+// Import your analysis screens here when they are created, e.g.:
+// import com.example.datagrindset.ui.TxtFileAnalysisScreen
+// import com.example.datagrindset.ui.CsvFileAnalysisScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -51,53 +33,94 @@ class MainActivity : ComponentActivity() {
     ) { uri ->
         uri?.let {
             // Persist read permissions. This is crucial for long-term access.
-            // The ViewModel will also call this, but doing it here immediately is also fine.
             try {
-                contentResolver.takePersistableUriPermission(
-                    it,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
+                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION // Optional: if you ever need to write
+                contentResolver.takePersistableUriPermission(it, takeFlags)
                 viewModel.setRootTreeUri(it)
             } catch (e: SecurityException) {
                 // Handle the case where permissions could not be taken.
-                // Maybe show a toast or log an error.
-                // For now, the ViewModel will also handle setting its state to null if this fails.
+                // The ViewModel will also handle setting its state appropriately if this fails.
                 viewModel.setRootTreeUri(it) // Let ViewModel try and handle error display if needed
+                // You might want to show a toast to the user here indicating permission failure.
+                // e.g., Toast.makeText(this, "Failed to get folder permissions", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            setContent {
-                DataGrindsetTheme {
-                    val rootTreeUri by viewModel.rootTreeUri.collectAsStateWithLifecycle()
-                    val canNavigateUp by viewModel.canNavigateUp.collectAsStateWithLifecycle() // Collect this
-                    val directoryEntries by viewModel.directoryEntries.collectAsStateWithLifecycle()
-                    val fileProcessingStatusMap by viewModel.fileProcessingStatusMap.collectAsStateWithLifecycle() // Collect this
-                    val searchText by viewModel.searchText.collectAsStateWithLifecycle()
-                    val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
-                    val currentPathDisplay by viewModel.currentPathDisplay.collectAsStateWithLifecycle()
 
-                    LocalFileManagerScreen(
-                        rootUriSelected = rootTreeUri != null,
-                        canNavigateUp = canNavigateUp, // Pass it here
-                        currentPath = currentPathDisplay,
-                        entries = directoryEntries,
-                        fileProcessingStatusMap = fileProcessingStatusMap, // Pass it here
-                        searchText = searchText,
-                        onSearchTextChanged = viewModel::onSearchTextChanged,
-                        currentSortOption = sortOption,
-                        onSortOptionSelected = viewModel::onSortOptionSelected,
-                        onSelectRootDirectoryClicked = {
-                            openDirectoryLauncher.launch(null)
-                        },
-                        onNavigateToFolder = viewModel::navigateTo,
-                        onNavigateUp = viewModel::navigateUp,
-                        onProcessFile = viewModel::processFile,
-                        onDeleteEntry = viewModel::deleteEntry
-                    )
+        setContent {
+            DataGrindsetTheme {
+                val navController = rememberNavController() // For Jetpack Compose Navigation
+
+                // Collecting all necessary states from the ViewModel
+                val rootTreeUri by viewModel.rootTreeUri.collectAsStateWithLifecycle()
+                val canNavigateUp by viewModel.canNavigateUp.collectAsStateWithLifecycle()
+                val currentPathDisplay by viewModel.currentPathDisplay.collectAsStateWithLifecycle()
+                val directoryEntries by viewModel.directoryEntries.collectAsStateWithLifecycle()
+                val fileProcessingStatusMap by viewModel.fileProcessingStatusMap.collectAsStateWithLifecycle()
+                val searchText by viewModel.searchText.collectAsStateWithLifecycle()
+                val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
+                val navigateToAnalysisTarget by viewModel.navigateToAnalysisTarget.collectAsStateWithLifecycle()
+
+                // Navigation Host for managing different screens
+                NavHost(navController = navController, startDestination = "fileManager") {
+                    composable("fileManager") {
+                        LocalFileManagerScreen(
+                            rootUriSelected = rootTreeUri != null,
+                            canNavigateUp = canNavigateUp,
+                            currentPath = currentPathDisplay,
+                            entries = directoryEntries,
+                            fileProcessingStatusMap = fileProcessingStatusMap,
+                            searchText = searchText,
+                            onSearchTextChanged = viewModel::onSearchTextChanged,
+                            currentSortOption = sortOption,
+                            onSortOptionSelected = viewModel::onSortOptionSelected,
+                            onSelectRootDirectoryClicked = {
+                                openDirectoryLauncher.launch(null) // Initial URI can be null
+                            },
+                            onNavigateToFolder = viewModel::navigateTo,
+                            onNavigateUp = viewModel::navigateUp,
+                            onPrepareFileForAnalysis = viewModel::prepareFileForAnalysis,
+                            onDeleteEntry = viewModel::deleteEntry,
+                            navigateToAnalysisTarget = navigateToAnalysisTarget,
+                            onDidNavigateToAnalysisScreen = viewModel::didNavigateToAnalysisScreen,
+                            navController = navController // Pass NavController for navigation actions
+                        )
+                    }
+
+                    // Example destination for TXT file analysis
+                    composable("txtAnalysisScreen/{fileUri}") { backStackEntry ->
+                        val fileUriString = backStackEntry.arguments?.getString("fileUri")
+                        if (fileUriString != null) {
+                            val decodedUri = Uri.parse(Uri.decode(fileUriString))
+                            // Replace with your actual TxtFileAnalysisScreen composable
+                            // TxtFileAnalysisScreen(navController = navController, fileUri = decodedUri)
+                            // For now, a placeholder:
+                            // Text("Placeholder for TXT Analysis Screen. URI: $decodedUri")
+                        } else {
+                            // Handle error: fileUri not provided
+                            // Text("Error: TXT file URI not provided.")
+                        }
+                    }
+
+                    // Example destination for CSV file analysis
+                    composable("csvAnalysisScreen/{fileUri}") { backStackEntry ->
+                        val fileUriString = backStackEntry.arguments?.getString("fileUri")
+                        if (fileUriString != null) {
+                            val decodedUri = Uri.parse(Uri.decode(fileUriString))
+                            // Replace with your actual CsvFileAnalysisScreen composable
+                            // CsvFileAnalysisScreen(navController = navController, fileUri = decodedUri)
+                            // For now, a placeholder:
+                            // Text("Placeholder for CSV Analysis Screen. URI: $decodedUri")
+                        } else {
+                            // Handle error: fileUri not provided
+                            // Text("Error: CSV file URI not provided.")
+                        }
+                    }
+                    // Add more destinations for other analysis screens as needed
                 }
             }
         }

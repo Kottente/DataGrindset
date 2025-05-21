@@ -18,6 +18,8 @@ ui = "1.6.7"
 uiToolingPreview = "1.6.7"
 lifecycleRuntimeComposeAndroid = "2.9.0"
 documentfile = "1.1.0"
+navigationRuntimeAndroid = "2.9.0"
+navigationComposeJvmstubs = "2.9.0"
 
 [libraries]
 androidx-activity-compose-v190 = { module = "androidx.activity:activity-compose", version.ref = "activityComposeVersion" }
@@ -48,6 +50,8 @@ ui = { module = "androidx.compose.ui:ui", version.ref = "ui" }
 ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "uiToolingPreview" }
 androidx-lifecycle-runtime-compose-android = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose-android", version.ref = "lifecycleRuntimeComposeAndroid" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
+androidx-navigation-runtime-android = { group = "androidx.navigation", name = "navigation-runtime-android", version.ref = "navigationRuntimeAndroid" }
+androidx-navigation-compose-jvmstubs = { group = "androidx.navigation", name = "navigation-compose-jvmstubs", version.ref = "navigationComposeJvmstubs" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

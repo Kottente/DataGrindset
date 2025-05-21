@@ -10,12 +10,12 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.datagrindset.ProcessingStatus
 import com.example.datagrindset.ui.SortOption
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.UUID // Keep for potential future use, though DocumentFile URIs are main IDs now
 import androidx.core.net.toUri
+import com.example.datagrindset.ProcessingStatus
 
 // (DirectoryEntry sealed class remains the same as before)
 sealed class DirectoryEntry {
@@ -85,6 +85,9 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     // For managing processing status of files
     private val _fileProcessingStatusMap = MutableStateFlow<Map<Uri, Pair<ProcessingStatus, String?>>>(emptyMap())
     val fileProcessingStatusMap: StateFlow<Map<Uri, Pair<ProcessingStatus, String?>>> = _fileProcessingStatusMap.asStateFlow()
+    // New StateFlow to signal navigation to an analysis screen
+    private val _navigateToAnalysisTarget = MutableStateFlow<DirectoryEntry.FileEntry?>(null)
+    val navigateToAnalysisTarget: StateFlow<DirectoryEntry.FileEntry?> = _navigateToAnalysisTarget.asStateFlow()
 
 
     val directoryEntries: StateFlow<List<DirectoryEntry>> =
@@ -250,21 +253,27 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         // TODO: Persist this map if needed (e.g., if statuses should survive app restart)
     }
 
-    fun processFile(fileEntry: DirectoryEntry.FileEntry) {
-        updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.PENDING, "Queued for analysis...")
-        viewModelScope.launch {
-            // Simulate processing
-            println("Processing file: ${fileEntry.name} at ${fileEntry.uri}")
-            updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.PROCESSING, "Analyzing...")
-            kotlinx.coroutines.delay(3000) // Simulate work
-            val success = true // Random().nextBoolean() // Simulate outcome
+    fun prepareFileForAnalysis(fileEntry: DirectoryEntry.FileEntry) {
+        val mimeType = fileEntry.mimeType?.lowercase()
 
-            if (success) {
-                updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.SUCCESS, "Analysis complete.")
-            } else {
-                updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.FAILED, "Analysis failed: Check logs.")
+        when (mimeType) {
+            "text/plain", "text/markdown" -> { // Assuming markdown is also text
+                updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.SUCCESS, "Ready to open text file")
+                _navigateToAnalysisTarget.value = fileEntry // Signal navigation
+            }
+            "text/csv" -> {
+                updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.SUCCESS, "Ready to open CSV file")
+                _navigateToAnalysisTarget.value = fileEntry // Signal navigation
+            }
+            // Add more supported types here later (e.g., "application/json")
+            else -> {
+                updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.UNSUPPORTED, "File type not supported for analysis.")
+                // _navigateToAnalysisTarget remains null or is set to null if you want to clear previous signals
             }
         }
+    }
+    fun didNavigateToAnalysisScreen() {
+        _navigateToAnalysisTarget.value = null
     }
 
     fun deleteEntry(entry: DirectoryEntry) {
