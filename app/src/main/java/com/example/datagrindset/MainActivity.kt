@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.material.Text
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHost
@@ -18,7 +19,10 @@ import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import com.example.datagrindset.viewmodel.LocalFileManagerViewModel
 import com.example.datagrindset.viewmodel.LocalFileManagerViewModelFactory
 // Import your analysis screens here when they are created, e.g.:
-// import com.example.datagrindset.ui.TxtFileAnalysisScreen
+import com.example.datagrindset.ui.TxtFileAnalysisScreen
+import androidx.core.net.toUri
+
+
 // import com.example.datagrindset.ui.CsvFileAnalysisScreen
 
 class MainActivity : ComponentActivity() {
@@ -91,18 +95,20 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // Example destination for TXT file analysis
                     composable("txtAnalysisScreen/{fileUri}") { backStackEntry ->
-                        val fileUriString = backStackEntry.arguments?.getString("fileUri")
-                        if (fileUriString != null) {
-                            val decodedUri = Uri.parse(Uri.decode(fileUriString))
-                            // Replace with your actual TxtFileAnalysisScreen composable
-                            // TxtFileAnalysisScreen(navController = navController, fileUri = decodedUri)
-                            // For now, a placeholder:
-                            // Text("Placeholder for TXT Analysis Screen. URI: $decodedUri")
+                        val encodedFileUriString = backStackEntry.arguments?.getString("fileUri")
+                        if (encodedFileUriString != null) {
+                            // We encoded it once, so we might need to decode it once if the nav component didn't fully.
+                            // However, Uri.parse() can often handle already-decoded or partially encoded strings.
+                            // Let's try parsing directly first. If issues persist, explicitly decode.
+                            val fileUri = encodedFileUriString.toUri() // Try direct parse
+                            // If the above still has issues with encoding, you might try:
+                            // val decodedUriString = Uri.decode(encodedFileUriString)
+                            // val fileUri = Uri.parse(decodedUriString)
+                            TxtFileAnalysisScreen(navController = navController, fileUri = fileUri)
                         } else {
-                            // Handle error: fileUri not provided
-                            // Text("Error: TXT file URI not provided.")
+                            // Handle error: fileUri not provided. Maybe navigate back or show error.
+                            Text("Error: TXT file URI not provided in navigation arguments.")
                         }
                     }
 
@@ -110,7 +116,7 @@ class MainActivity : ComponentActivity() {
                     composable("csvAnalysisScreen/{fileUri}") { backStackEntry ->
                         val fileUriString = backStackEntry.arguments?.getString("fileUri")
                         if (fileUriString != null) {
-                            val decodedUri = Uri.parse(Uri.decode(fileUriString))
+                            val decodedUri = Uri.decode(fileUriString).toUri()
                             // Replace with your actual CsvFileAnalysisScreen composable
                             // CsvFileAnalysisScreen(navController = navController, fileUri = decodedUri)
                             // For now, a placeholder:
@@ -121,6 +127,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     // Add more destinations for other analysis screens as needed
+                    // composable("csvAnalysisScreen/{fileUri}") { /* ... */ }
                 }
             }
         }

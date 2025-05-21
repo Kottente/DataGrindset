@@ -14,6 +14,7 @@ composeBom = "2024.04.01"
 lifecycleRuntimeKtxVersion = "2.7.0"
 lifecycleViewmodelCompose = "2.8.0"
 material = "1.6.7"
+navigationCompose = "2.7.7"
 ui = "1.6.7"
 uiToolingPreview = "1.6.7"
 lifecycleRuntimeComposeAndroid = "2.9.0"
@@ -30,6 +31,7 @@ androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-
 androidx-material = { module = "androidx.compose.material:material", version.ref = "material" }
 androidx-material-icons-core = { module = "androidx.compose.material:material-icons-core", version.ref = "material" }
 androidx-material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version.ref = "material" }
+androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-common-ktx = { module = "com.google.firebase:firebase-common-ktx" }
 firebase-storage-ktx = { module = "com.google.firebase:firebase-storage-ktx" }

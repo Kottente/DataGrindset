@@ -119,10 +119,12 @@ fun LocalFileManagerScreen(
         navigateToAnalysisTarget?.let { fileEntry ->
             val mimeType = fileEntry.mimeType?.lowercase()
             // This is where you would typically use your NavController
+
+            val uriString = fileEntry.uri.toString()
             val route = when (mimeType) {
-                "text/plain", "text/markdown" -> "txtAnalysisScreen/${Uri.encode(fileEntry.uri.toString())}"
-                "text/csv" -> "csvAnalysisScreen/${Uri.encode(fileEntry.uri.toString())}"
-                else -> null // No route for unsupported types from this screen's perspective
+                "text/plain", "text/markdown" -> "txtAnalysisScreen/${Uri.encode(uriString)}" // Encode the whole URI string once
+                "text/csv" -> "csvAnalysisScreen/${Uri.encode(uriString)}"
+                else -> null
             }
             route?.let {
                 navController.navigate(it) // Use the passed NavController
