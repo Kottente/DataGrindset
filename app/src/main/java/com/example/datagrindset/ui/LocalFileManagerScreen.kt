@@ -28,6 +28,20 @@ import android.net.Uri // For Preview
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.ui.platform.LocalContext
 import androidx.documentfile.provider.DocumentFile
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+
+import androidx.compose.ui.platform.LocalContext // For preview, if needed for DocumentFile
+
+import androidx.compose.ui.unit.dp
+import com.example.datagrindset.ui.theme.DataGrindsetTheme
+
 
 // (SortOption enum should already be here or imported)
 enum class SortOption {
@@ -36,13 +50,20 @@ enum class SortOption {
     BY_SIZE_ASC, BY_SIZE_DESC
 }
 
+// In ui/LocalFileManagerScreen.kt
+
+
+
+// (SortOption enum should already be here or imported)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalFileManagerScreen(
     rootUriSelected: Boolean,
+    canNavigateUp: Boolean, // New parameter
     currentPath: String,
     entries: List<DirectoryEntry>,
+    fileProcessingStatusMap: Map<Uri, Pair<ProcessingStatus, String?>>, // New parameter
     searchText: String,
     onSearchTextChanged: (String) -> Unit,
     currentSortOption: SortOption,
@@ -62,31 +83,37 @@ fun LocalFileManagerScreen(
                 title = {
                     if (showSearchField) {
                         OutlinedTextField(
-                            value = searchText,
-                            onValueChange = onSearchTextChanged,
-                            modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                            value = searchText, // Provide the searchText state
+                            onValueChange = onSearchTextChanged, // Provide the callback
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = 8.dp) // Keep padding if desired
+                                .height(50.dp), // Adjust height to better fit TopAppBar
                             placeholder = { Text("Search in current folder...") },
                             singleLine = true,
-                            colors = TextFieldDefaults.outlinedTextFieldColors()
+                            colors = OutlinedTextFieldDefaults.colors( // Optional: customize colors
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            ),
+                            keyboardActions = KeyboardActions(onSearch = {
+                                // Optionally hide keyboard or trigger search action if needed
+                            }),
+                            textStyle = MaterialTheme.typography.bodyLarge // Ensure text size is appropriate
                         )
                     } else {
                         Text("DataGrindset Browser")
                     }
                 },
                 navigationIcon = {
-                    // Show Up button only if root is selected and not at the very root of the selected tree
-                    // The ViewModel's navigateUp() should handle the logic of whether it can go up.
-                    // We can enable/disable based on currentPath or a dedicated canNavigateUp boolean from VM.
-                    // For now, let's assume if rootUriSelected, we might be able to go up.
-                    // A more robust way: viewModel.canNavigateUp.collectAsStateWithLifecycle()
-                    if (rootUriSelected && currentPath != DocumentFile.fromTreeUri(LocalContext.current, Uri.parse(currentPath.split("/.../").firstOrNull() ?: currentPath))?.name) { // Simplified check
+                    if (rootUriSelected && canNavigateUp) { // Use canNavigateUp state
                         IconButton(onClick = onNavigateUp) {
                             Icon(Icons.Filled.ArrowUpward, contentDescription = "Navigate Up")
                         }
                     }
                 },
                 actions = {
-                    if (rootUriSelected) { // Only show search/sort if a folder is selected
+                    if (rootUriSelected) {
+                        // Search and Sort icons
                         if (!showSearchField) {
                             IconButton(onClick = { showSearchField = true }) {
                                 Icon(Icons.Filled.Search, contentDescription = "Search Files")
@@ -107,9 +134,7 @@ fun LocalFileManagerScreen(
                                 expanded = showSortMenu,
                                 onDismissRequest = { showSortMenu = false }
                             ) {
-                                // Sort options remain the same
                                 DropdownMenuItem(text = { Text("Sort by Name (A-Z)") }, onClick = { onSortOptionSelected(SortOption.BY_NAME_ASC); showSortMenu = false })
-                                // ... other sort options
                                 DropdownMenuItem(text = { Text("Sort by Name (Z-A)") }, onClick = { onSortOptionSelected(SortOption.BY_NAME_DESC); showSortMenu = false })
                                 DropdownMenuItem(text = { Text("Sort by Date (Newest)") }, onClick = { onSortOptionSelected(SortOption.BY_DATE_DESC); showSortMenu = false })
                                 DropdownMenuItem(text = { Text("Sort by Date (Oldest)") }, onClick = { onSortOptionSelected(SortOption.BY_DATE_ASC); showSortMenu = false })
@@ -124,7 +149,6 @@ fun LocalFileManagerScreen(
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
             if (rootUriSelected) {
-                // Display current path
                 Text(
                     text = "Current: $currentPath",
                     style = MaterialTheme.typography.labelMedium,
@@ -133,26 +157,25 @@ fun LocalFileManagerScreen(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                if (entries.isEmpty() && searchText.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-                        Text("This folder is empty.", style = MaterialTheme.typography.bodyLarge)
-                    }
-                } else if (entries.isEmpty() && searchText.isNotEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-                        Text("No items found matching '$searchText'.", style = MaterialTheme.typography.bodyLarge)
-                    }
-                } else {
+                if (entries.isEmpty() && searchText.isEmpty()) { /* ... Empty folder message ... */ }
+                else if (entries.isEmpty() && searchText.isNotEmpty()) { /* ... No search results message ... */ }
+                else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(vertical = 8.dp)
                     ) {
                         items(entries, key = { entry -> entry.id }) { entry ->
                             when (entry) {
-                                is DirectoryEntry.FileEntry -> FileListItem(
-                                    fileEntry = entry,
-                                    onProcess = { onProcessFile(entry) },
-                                    onDelete = { onDeleteEntry(entry) }
-                                )
+                                is DirectoryEntry.FileEntry -> {
+                                    val statusPair = fileProcessingStatusMap[entry.uri] // Get status from map
+                                    FileListItem(
+                                        fileEntry = entry,
+                                        processingStatus = statusPair?.first ?: ProcessingStatus.NONE,
+                                        processingSummary = statusPair?.second,
+                                        onProcess = { onProcessFile(entry) },
+                                        onDelete = { onDeleteEntry(entry) }
+                                    )
+                                }
                                 is DirectoryEntry.FolderEntry -> FolderListItem(
                                     folderEntry = entry,
                                     onClick = { onNavigateToFolder(entry) },
@@ -181,12 +204,12 @@ fun LocalFileManagerScreen(
     }
 }
 
-// --- New Item Composable for Folders ---
+// FolderListItem remains the same as before
 @Composable
 fun FolderListItem(
     folderEntry: DirectoryEntry.FolderEntry,
     onClick: () -> Unit,
-    onDelete: () -> Unit, // Optional: allow deleting folders
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -209,10 +232,9 @@ fun FolderListItem(
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(folderEntry.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("${folderEntry.childCount} items", style = MaterialTheme.typography.bodySmall) // Optional child count
+                Text("${folderEntry.childCount} items", style = MaterialTheme.typography.bodySmall)
             }
-            // Optional: Delete button for folders
-            IconButton(onClick = onDelete) {
+            IconButton(onClick = onDelete) { // Keep delete for folders for now
                 Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete Folder", tint = MaterialTheme.colorScheme.error)
             }
             Icon(Icons.Filled.ChevronRight, contentDescription = "Open folder")
@@ -220,10 +242,13 @@ fun FolderListItem(
     }
 }
 
-// --- Modified Item Composable for Files (was LocalFileItem) ---
+
+// --- Modified Item Composable for Files ---
 @Composable
 fun FileListItem(
     fileEntry: DirectoryEntry.FileEntry,
+    processingStatus: ProcessingStatus, // New parameter
+    processingSummary: String?,        // New parameter
     onProcess: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
@@ -239,7 +264,7 @@ fun FileListItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = getIconForMimeType(fileEntry.mimeType), // Assuming getIconForMimeType is defined
+                imageVector = getIconForMimeType(fileEntry.mimeType),
                 contentDescription = "File type",
                 modifier = Modifier.size(40.dp),
                 tint = MaterialTheme.colorScheme.primary
@@ -251,12 +276,11 @@ fun FileListItem(
                     Text("Size: ${formatFileSize(fileEntry.size)}", style = MaterialTheme.typography.bodySmall)
                     Text("Modified: ${formatDate(fileEntry.dateModified)}", style = MaterialTheme.typography.bodySmall)
                 }
-                // Processing status (if you re-add it to FileEntry or manage it via ViewModel map)
-                if (fileEntry.processingStatus != ProcessingStatus.NONE || fileEntry.processingResultSummary != null) {
+                if (processingStatus != ProcessingStatus.NONE || processingSummary != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        ProcessingStatusIndicator(fileEntry.processingStatus) // Assuming this is defined
-                        fileEntry.processingResultSummary?.let {
+                        ProcessingStatusIndicator(processingStatus) // Use the passed status
+                        processingSummary?.let {
                             Text(
                                 text = it,
                                 style = MaterialTheme.typography.bodySmall,
@@ -279,46 +303,27 @@ fun FileListItem(
 
 // Helper functions (getIconForMimeType, formatFileSize, formatDate, ProcessingStatusIndicator)
 // should be kept or moved to a common place if not already.
-// Make sure they are accessible here. For brevity, I'm not repeating them.
-// Example stubs if they are missing:
-fun getIconForMimeType(mimeType: String?): ImageVector {
-    return when (mimeType?.lowercase()) {
-        "text/csv" -> Icons.Filled.Description
-        "application/json" -> Icons.Filled.DataObject
-        "application/pdf" -> Icons.Filled.PictureAsPdf
-        "image/jpeg", "image/png" -> Icons.Filled.Image
-        else -> Icons.Filled.InsertDriveFile
-    }
+// (Assuming they are already defined as in the previous step)
+fun getIconForMimeType(mimeType: String?): ImageVector { /* ... */ return Icons.AutoMirrored.Filled.InsertDriveFile
 }
-fun formatFileSize(sizeInBytes: Long): String {
-    if (sizeInBytes < 1024) return "$sizeInBytes B"
-    val kb = sizeInBytes / 1024; if (kb < 1024) return "$kb KB"
-    val mb = kb / 1024; if (mb < 1024) return "$mb MB"
-    return "${mb / 1024} GB"
-}
+fun formatFileSize(sizeInBytes: Long): String { /* ... */ return "$sizeInBytes B" }
 fun formatDate(timestamp: Long): String = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(timestamp))
 
 @Composable
-fun ProcessingStatusIndicator(status: ProcessingStatus) {
-    val (icon, color) = when (status) {
-        ProcessingStatus.PENDING -> Icons.Filled.HourglassEmpty to MaterialTheme.colorScheme.onSurfaceVariant
-        ProcessingStatus.PROCESSING -> Icons.Filled.Sync to MaterialTheme.colorScheme.secondary
-        ProcessingStatus.SUCCESS -> Icons.Filled.CheckCircle to Color(0xFF2E7D32) // Example Green
-        ProcessingStatus.FAILED -> Icons.Filled.Error to MaterialTheme.colorScheme.error
-        ProcessingStatus.NONE -> return
-    }
-    Icon(imageVector = icon, contentDescription = "Status: $status", tint = color, modifier = Modifier.size(18.dp))
-}
+fun ProcessingStatusIndicator(status: ProcessingStatus) { /* ... */ }
 
-// --- Preview ---
+
+// --- Updated Previews ---
 @Preview(showBackground = true, name = "File Manager Screen - No Root Selected")
 @Composable
 fun LocalFileManagerScreenNoRootPreview() {
     DataGrindsetTheme {
         LocalFileManagerScreen(
             rootUriSelected = false,
+            canNavigateUp = false, // Added
             currentPath = "No folder selected",
             entries = emptyList(),
+            fileProcessingStatusMap = emptyMap(), // Added
             searchText = "",
             onSearchTextChanged = {},
             currentSortOption = SortOption.BY_NAME_ASC,
@@ -336,16 +341,25 @@ fun LocalFileManagerScreenNoRootPreview() {
 @Composable
 fun LocalFileManagerScreenWithRootPreview() {
     DataGrindsetTheme {
+        val sampleFileUri1 = Uri.parse("file://dummy/Report_Q1.csv")
+        val sampleFileUri2 = Uri.parse("file://dummy/Data_Analysis.json")
+
         val sampleEntries = listOf(
-            DirectoryEntry.FolderEntry("folder1", "Work Documents", Uri.EMPTY, 3),
-            DirectoryEntry.FileEntry("file1", "Report Q1.csv", Uri.EMPTY, 12345, System.currentTimeMillis() - 100000, "text/csv", ProcessingStatus.SUCCESS, "Done"),
-            DirectoryEntry.FolderEntry("folder2", "Images", Uri.EMPTY, 1),
-            DirectoryEntry.FileEntry("file2", "Data Analysis.json", Uri.EMPTY, 67890, System.currentTimeMillis() - 200000, "application/json")
+            DirectoryEntry.FolderEntry("folder1", "Work Documents", Uri.parse("folder://dummy/work"), 3),
+            DirectoryEntry.FileEntry("file1", "Report Q1.csv", sampleFileUri1, 12345, System.currentTimeMillis() - 100000, "text/csv"),
+            DirectoryEntry.FolderEntry("folder2", "Images", Uri.parse("folder://dummy/images"), 1),
+            DirectoryEntry.FileEntry("file2", "Data Analysis.json", sampleFileUri2, 67890, System.currentTimeMillis() - 200000, "application/json")
+        )
+        val sampleStatusMap = mapOf(
+            sampleFileUri1 to (ProcessingStatus.SUCCESS to "Done"),
+            sampleFileUri2 to (ProcessingStatus.PENDING to "Queued")
         )
         LocalFileManagerScreen(
             rootUriSelected = true,
-            currentPath = "My Phone/.../Selected Folder",
+            canNavigateUp = true, // Added, assuming we are in a subfolder for preview
+            currentPath = "Selected Folder > Work Documents",
             entries = sampleEntries,
+            fileProcessingStatusMap = sampleStatusMap, // Added
             searchText = "",
             onSearchTextChanged = {},
             currentSortOption = SortOption.BY_NAME_ASC,

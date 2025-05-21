@@ -72,34 +72,32 @@ class MainActivity : ComponentActivity() {
         setContent {
             setContent {
                 DataGrindsetTheme {
-                    val rootTreeUriState by viewModel.rootTreeUri.collectAsStateWithLifecycle() // Renamed for clarity
+                    val rootTreeUri by viewModel.rootTreeUri.collectAsStateWithLifecycle()
+                    val canNavigateUp by viewModel.canNavigateUp.collectAsStateWithLifecycle() // Collect this
                     val directoryEntries by viewModel.directoryEntries.collectAsStateWithLifecycle()
+                    val fileProcessingStatusMap by viewModel.fileProcessingStatusMap.collectAsStateWithLifecycle() // Collect this
                     val searchText by viewModel.searchText.collectAsStateWithLifecycle()
                     val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
                     val currentPathDisplay by viewModel.currentPathDisplay.collectAsStateWithLifecycle()
-                    // Optional: Add a state for canNavigateUp if you implement it in ViewModel
-                    // val canNavigateUp by viewModel.canNavigateUp.collectAsStateWithLifecycle()
 
-
-                    // CORRECTED CALL TO LocalFileManagerScreen:
                     LocalFileManagerScreen(
-                        rootUriSelected = rootTreeUriState != null, // Correct: using the collected state
+                        rootUriSelected = rootTreeUri != null,
+                        canNavigateUp = canNavigateUp, // Pass it here
                         currentPath = currentPathDisplay,
                         entries = directoryEntries,
+                        fileProcessingStatusMap = fileProcessingStatusMap, // Pass it here
                         searchText = searchText,
                         onSearchTextChanged = viewModel::onSearchTextChanged,
                         currentSortOption = sortOption,
                         onSortOptionSelected = viewModel::onSortOptionSelected,
-                        onSelectRootDirectoryClicked = { // This is the new "add file/folder" equivalent
+                        onSelectRootDirectoryClicked = {
                             openDirectoryLauncher.launch(null)
                         },
                         onNavigateToFolder = viewModel::navigateTo,
                         onNavigateUp = viewModel::navigateUp,
-                        // onCanNavigateUp = canNavigateUp, // Pass this if you add it
                         onProcessFile = viewModel::processFile,
-                        onDeleteEntry = viewModel::deleteEntry // Correct: using the new parameter name
+                        onDeleteEntry = viewModel::deleteEntry
                     )
-
                 }
             }
         }
