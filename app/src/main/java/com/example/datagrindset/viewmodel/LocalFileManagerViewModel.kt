@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import java.util.UUID // Keep for potential future use, though DocumentFile URIs are main IDs now
 import androidx.core.net.toUri
 import com.example.datagrindset.ProcessingStatus
+import androidx.core.content.edit
 
 // (DirectoryEntry sealed class remains the same as before)
 sealed class DirectoryEntry {
@@ -191,7 +192,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     }
 
     private fun clearRootTreeUriPersistence() {
-        sharedPreferences.edit().remove(KEY_ROOT_TREE_URI).apply()
+        sharedPreferences.edit { remove(KEY_ROOT_TREE_URI) }
         _rootTreeUri.value = null
         _currentPathSegmentsList.value = emptyList()
     }
@@ -203,7 +204,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             if (rootDocFile != null && rootDocFile.isDirectory) {
                 _rootTreeUri.value = uri
                 _currentPathSegmentsList.value = listOf(PathSegment(uri, rootDocFile.name ?: "Selected Folder"))
-                sharedPreferences.edit().putString(KEY_ROOT_TREE_URI, uri.toString()).apply()
+                sharedPreferences.edit { putString(KEY_ROOT_TREE_URI, uri.toString()) }
             } else {
                 // Not a valid directory tree
                 _rootTreeUri.value = null

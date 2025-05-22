@@ -1,6 +1,7 @@
 [versions]
 activityComposeVersion = "1.9.0"
 agp = "8.10.0"
+androidxActivityCompose = "1.8.0"
 coreKtxVersion = "1.12.0"
 firebaseBom = "33.13.0"
 kotlin = "2.0.0"
@@ -23,7 +24,9 @@ navigationRuntimeAndroid = "2.9.0"
 navigationComposeJvmstubs = "2.9.0"
 
 [libraries]
+androidx-activity-compose-v180 = { module = "androidx.activity:activity-compose", version.ref = "androidxActivityCompose" }
 androidx-activity-compose-v190 = { module = "androidx.activity:activity-compose", version.ref = "activityComposeVersion" }
+androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "androidxActivityCompose" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-core-ktx-v1120 = { module = "androidx.core:core-ktx", version.ref = "coreKtxVersion" }
 androidx-lifecycle-runtime-ktx-v270 = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtxVersion" }
