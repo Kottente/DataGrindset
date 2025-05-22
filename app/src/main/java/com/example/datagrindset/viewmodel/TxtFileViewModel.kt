@@ -16,6 +16,13 @@ import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import android.provider.OpenableColumns // For getting display name
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
 
 class TxtFileViewModel(application: Application, private val fileUri: Uri) : AndroidViewModel(application) {
 
@@ -31,6 +38,24 @@ class TxtFileViewModel(application: Application, private val fileUri: Uri) : And
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<List<IntRange>>(emptyList())
+    val searchResults: StateFlow<List<IntRange>> = _searchResults.asStateFlow()
+
+    private val _currentResultIndex = MutableStateFlow(-1) // -1 means no active highlight or no results
+    val currentResultIndex: StateFlow<Int> = _currentResultIndex.asStateFlow()
+
+    val totalResults: StateFlow<Int> = _searchResults.combine(_searchQuery) { results, query ->
+        if (query.isBlank()) 0 else results.size
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000), // Keep active for 5s after last observer gone
+        initialValue = 0
+    )// Corrected combine usage
+
+    private var searchJob: Job? = null
     // More states for text analysis features will be added here later
     // e.g., fontSize, editMode, searchText, summary, etc.
     companion object {
@@ -205,6 +230,64 @@ class TxtFileViewModel(application: Application, private val fileUri: Uri) : And
                 _isLoading.value = false
             }
         }
+    }
+    fun onSearchQueryChanged(query: String) {
+        _searchQuery.value = query
+        searchJob?.cancel() // Cancel previous search if any
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            _currentResultIndex.value = -1
+            return
+        }
+        // Debounce search slightly to avoid searching on every keystroke instantly
+        searchJob = viewModelScope.launch {
+            delay(300) // Debounce for 300ms
+            performSearch(query)
+        }
+    }
+
+    private fun performSearch(query: String) {
+        val content = _fileContent.value
+        if (content == null || query.isBlank()) {
+            _searchResults.value = emptyList()
+            _currentResultIndex.value = -1
+            return
+        }
+
+        val results = mutableListOf<IntRange>()
+        var lastIndex = 0
+        while (lastIndex < content.length) {
+            val foundIndex = content.indexOf(query, lastIndex, ignoreCase = true) // ignoreCase = true for user-friendly search
+            if (foundIndex == -1) break
+            results.add(IntRange(foundIndex, foundIndex + query.length - 1))
+            lastIndex = foundIndex + query.length
+        }
+        _searchResults.value = results
+        _currentResultIndex.value = if (results.isNotEmpty()) 0 else -1 // Highlight first result or none
+        Log.d(TAG, "Search for '$query' found ${results.size} matches.")
+    }
+
+    fun clearSearch() {
+        _searchQuery.value = ""
+        _searchResults.value = emptyList()
+        _currentResultIndex.value = -1
+        searchJob?.cancel()
+    }
+
+    fun goToNextMatch() {
+        if (_searchResults.value.isEmpty()) return
+        val nextIndex = (_currentResultIndex.value + 1) % _searchResults.value.size
+        _currentResultIndex.value = nextIndex
+    }
+
+    fun goToPreviousMatch() {
+        if (_searchResults.value.isEmpty()) return
+        val prevIndex = if (_currentResultIndex.value - 1 < 0) {
+            _searchResults.value.size - 1
+        } else {
+            _currentResultIndex.value - 1
+        }
+        _currentResultIndex.value = prevIndex
     }
 
     // Placeholder for future actions

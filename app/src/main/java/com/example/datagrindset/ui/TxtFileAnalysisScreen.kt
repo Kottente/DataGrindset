@@ -1,8 +1,11 @@
 package com.example.datagrindset.ui
 
 import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -11,7 +14,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -21,6 +31,7 @@ import androidx.navigation.NavController
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import com.example.datagrindset.viewmodel.TxtFileViewModel
 import com.example.datagrindset.viewmodel.TxtFileViewModelFactory
+import androidx.core.net.toUri
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,106 +50,173 @@ fun TxtFileAnalysisScreen(
     val error by viewModel.error.collectAsState()
 
     var showMenu by remember { mutableStateOf(false) }
-    // var showSearchBar by remember { mutableStateOf(false) } // Future state for search bar visibility
-    // Add more states here for UI interactions like font size, search query, edit mode, etc.
-    // For example:
-    // var currentFontSize by remember { mutableStateOf(14.sp) }
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val currentResultIndex by viewModel.currentResultIndex.collectAsState()
+    val totalResults by viewModel.totalResults.collectAsState()
+    var showSearchBar by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    var textLayoutResultState by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val textScrollState = rememberScrollState()
+    val currentHighlightColor = MaterialTheme.colorScheme.primaryContainer
+    val otherHighlightColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+    val annotatedFileContent = remember(
+        fileContent,
+        searchQuery,
+        searchResults,
+        currentResultIndex,
+        currentHighlightColor, // Add colors as keys to recompute if theme changes
+        otherHighlightColor
+    ) {
+        buildAnnotatedString {
+            val content = fileContent
+            if (content.isNullOrEmpty()) {
+                return@buildAnnotatedString
+            }
+            append(content)
+
+            if (searchQuery.isNotBlank() && searchResults.isNotEmpty()) {
+                searchResults.forEachIndexed { index, range ->
+                    try {
+                        if (range.first >= 0 && range.last < content.length && range.first <= range.last) {
+                            addStyle(
+                                style = SpanStyle(
+                                    background = if (index == currentResultIndex) currentHighlightColor
+                                    else otherHighlightColor
+                                ),
+                                start = range.first,
+                                end = range.last + 1
+                            )
+                        } else {
+                            Log.w("TxtFileAnalysisScreen", "Skipping invalid range $range for content length ${content.length}")
+                        }
+                    } catch (e: IndexOutOfBoundsException) {
+                        Log.e("TxtFileAnalysisScreen", "IndexOutOfBoundsException applying style for range $range: ${e.message}")
+                    } catch (e: Exception) {
+                        Log.e("TxtFileAnalysisScreen", "Generic error applying style for range $range: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    // Scroll to current search result
+    LaunchedEffect(currentResultIndex, textLayoutResultState, searchResults.size) {
+        val textLayoutResult = textLayoutResultState // Use the state here
+        if (currentResultIndex != -1 && searchResults.isNotEmpty() && textLayoutResult != null) {
+            val currentMatchRange = searchResults.getOrNull(currentResultIndex)
+            currentMatchRange?.let { matchRange ->
+                try {
+                    // Ensure the offset is within the text length
+                    val offset = matchRange.first.coerceIn(0, textLayoutResult.layoutInput.text.length -1)
+                    val boundingBox = textLayoutResult.getBoundingBox(offset)
+                    val scrollPosition = boundingBox.top
+
+                    // Get the height of the visible area of the text composable
+                    // This requires the Text composable to be in a BoxWithConstraints or similar
+                    // For simplicity, we'll scroll to bring the top of the match into view.
+                    // A more advanced solution might try to center it.
+                    // We also need to consider the current scroll position and padding.
+                    // A simple scroll:
+                    textScrollState.animateScrollTo(scrollPosition.toInt())
+
+                } catch (e: Exception) {
+                    Log.e("TxtFileAnalysisScreen", "Error calculating scroll position: ${e.message}")
+                }
+            }
+        }
+    }
+
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(fileName, maxLines = 1) },
+                title = {
+                    if (showSearchBar) {
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.onSearchQueryChanged(it) },
+                            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).padding(end = 8.dp),
+                            textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            singleLine = true,
+                            decorationBox = { innerTextField ->
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    if (searchQuery.isEmpty()) {
+                                        Text("Search in file...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+                        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                    } else {
+                        Text(fileName, maxLines = 1)
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    if (showSearchBar) {
+                        IconButton(onClick = {
+                            showSearchBar = false
+                            viewModel.clearSearch()
+                            focusManager.clearFocus()
+                        }) { Icon(Icons.Filled.ArrowBack, "Close Search") }
+                    } else {
+                        IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Filled.ArrowBack, "Back") }
                     }
                 },
                 actions = {
-                    // Placeholder for menu items - will be expanded
-                    IconButton(onClick = {
-                        // TODO: Implement search functionality
-                        // e.g., showSearchBar = !showSearchBar
-                        // For now, just a placeholder action or log
-                        println("Search button clicked")
-                    }) {
-                        Icon(Icons.Filled.Search, contentDescription = "Search in file")
-                    }
-
-                    // More Options Menu
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More Options")
-                    }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Summary") },
-                            onClick = { viewModel.generateSummary(); showMenu = false }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Edit") }, // This will eventually change the TopAppBar actions too
-                            onClick = { viewModel.toggleEditMode(); showMenu = false }
-                        )
-                        // Font scaling options can be added here or as direct icons too
-                        // Example:
-                        // DropdownMenuItem(
-                        //     text = { Text("Increase Font Size") },
-                        //     onClick = { viewModel.increaseFontSize(); showMenu = false }
-                        // )
-                        // DropdownMenuItem(
-                        //     text = { Text("Decrease Font Size") },
-                        //     onClick = { viewModel.decreaseFontSize(); showMenu = false }
-                        // )
+                    if (showSearchBar) {
+                        if (totalResults > 0) {
+                            Text("${currentResultIndex + 1}/$totalResults", Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp))
+                        }
+                        IconButton(onClick = { viewModel.goToPreviousMatch() }, enabled = totalResults > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Previous") }
+                        IconButton(onClick = { viewModel.goToNextMatch() }, enabled = totalResults > 0) { Icon(Icons.Filled.KeyboardArrowDown, "Next") }
+                    } else {
+                        IconButton(onClick = { showSearchBar = true }) { Icon(Icons.Filled.Search, "Search") }
+                        IconButton(onClick = { showMenu = true }) { Icon(Icons.Filled.MoreVert, "More Options") }
+                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(text = { Text("Summary") }, onClick = { viewModel.generateSummary(); showMenu = false })
+                            DropdownMenuItem(text = { Text("Edit") }, onClick = { viewModel.toggleEditMode(); showMenu = false })
+                        }
                     }
                 }
             )
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
-        ) {
-            when {
-                isLoading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                }
-                error != null -> {
-                    Text(
-                        text = "Error: $error",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.align(Alignment.Center).padding(16.dp)
-                    )
-                }
-                fileContent != null -> {
-                    Text(
-                        text = fileContent!!, // Content is not null here
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(16.dp),
-                        fontFamily = FontFamily.Monospace, // Good for text files
-                        fontSize = 14.sp // Will be dynamic later: currentFontSize
-                    )
-                }
-                else -> {
-                    Text(
-                        "No content loaded or file is empty.",
-                        modifier = Modifier.align(Alignment.Center).padding(16.dp)
-                    )
+        Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                when {
+                    isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    error != null -> Text("Error: $error", color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center).padding(16.dp))
+                    fileContent != null -> {
+                        SelectionContainer {
+                            Text(
+                                text = annotatedFileContent,
+                                modifier = Modifier.fillMaxSize().verticalScroll(textScrollState).padding(16.dp),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 14.sp,
+                                onTextLayout = { layoutResult -> // Capture TextLayoutResult
+                                    textLayoutResultState = layoutResult
+                                }
+                            )
+                        }
+                    }
+                    else -> Text("No content loaded or file is empty.", Modifier.align(Alignment.Center).padding(16.dp))
                 }
             }
         }
     }
 }
 
+
 @Preview(showBackground = true)
 @Composable
 fun TxtFileAnalysisScreenPreview() {
     DataGrindsetTheme {
         // Creating a dummy URI for preview. This won't load actual content in preview.
-        val dummyUri = Uri.parse("content://com.example.datagrindset.provider/dummy.txt")
+        val dummyUri = "content://com.example.datagrindset.provider/dummy.txt".toUri()
         TxtFileAnalysisScreen(
             navController = NavController(LocalContext.current), // Simple NavController for preview
             fileUri = dummyUri
