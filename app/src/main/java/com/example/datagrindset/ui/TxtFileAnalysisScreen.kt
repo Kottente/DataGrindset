@@ -17,6 +17,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.*
+import androidx.activity.compose.BackHandler // Import BackHandler
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
@@ -32,6 +35,8 @@ import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import com.example.datagrindset.viewmodel.TxtFileViewModel
 import com.example.datagrindset.viewmodel.TxtFileViewModelFactory
 import androidx.core.net.toUri
+import androidx.activity.compose.rememberLauncherForActivityResult // Import
+import androidx.activity.result.contract.ActivityResultContracts
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,6 +62,33 @@ fun TxtFileAnalysisScreen(
     var showSearchBar by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+
+    // Edit mode states
+    val isEditMode by viewModel.isEditMode.collectAsState()
+    val editableContent by viewModel.editableContent.collectAsState()
+    val isSaving by viewModel.isSaving.collectAsState()
+    val saveError by viewModel.saveError.collectAsState()
+    val hasUnsavedChanges by viewModel.hasUnsavedChanges.collectAsState()
+    val showDiscardConfirmDialog by viewModel.showDiscardConfirmDialog.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val editorScrollState = rememberScrollState()
+
+    val saveAsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain"), // MIME type
+        onResult = { newFileUri: Uri? ->
+            viewModel.onSaveAsUriReceived(newFileUri)
+        }
+    )
+
+    // --- Collect "Save As" event from ViewModel ---
+    LaunchedEffect(Unit) { // Keyed to Unit to run once
+        viewModel.initiateSaveAsEvent.collect { suggestedName ->
+            suggestedName?.let {
+                saveAsLauncher.launch(it) // Launch the SAF file picker
+            }
+        }
+    }
+
     var textLayoutResultState by remember { mutableStateOf<TextLayoutResult?>(null) }
     val textScrollState = rememberScrollState()
     val currentHighlightColor = MaterialTheme.colorScheme.primaryContainer
@@ -128,16 +160,65 @@ fun TxtFileAnalysisScreen(
         }
     }
 
+    LaunchedEffect(saveError) { // Show snackbar for save errors
+        saveError?.let {
+            snackbarHostState.showSnackbar(message = it, duration = SnackbarDuration.Long)
+            viewModel.clearSaveError() // Clear error after showing
+            // Optionally clear the error in VM after showing: viewModel.clearSaveError()
+        }
+    }
+
+    LaunchedEffect(isEditMode) { // Request focus for editor when entering edit mode
+        if (isEditMode) {
+            focusRequester.requestFocus() // Use the same focusRequester or a new one for editor
+        }
+    }
+    // --- Back Press Handling for Discard Confirmation ---
+    BackHandler(enabled = isEditMode && hasUnsavedChanges) {
+        viewModel.attemptExitEditMode() // This will show the dialog
+    }
+
+    // --- Discard Confirmation Dialog ---
+    if (showDiscardConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelDiscardDialog() }, // User dismissed by clicking outside or back
+            title = { Text("Unsaved Changes") },
+            text = { Text("You have unsaved changes. What would you like to do?") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.saveAndExitEditMode() }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = { // This will now be our "Discard"
+                Row { // Use a Row to add a "Cancel" button if desired, or just have Discard
+                    TextButton(onClick = { viewModel.cancelDiscardDialog() }) { // Acts as a "Cancel" for the dialog itself
+                        Text("Cancel")
+                    }
+                    Spacer(Modifier.width(8.dp)) // Some space
+                    TextButton(onClick = { viewModel.confirmDiscardChanges() }) {
+                        Text("Discard")
+                    }
+                }
+            }
+            // Removed neutralButton
+        )
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
-                    if (showSearchBar) {
+                    if (isEditMode) {
+                        Text("Edit: $fileName", maxLines = 1)
+                    } else if (showSearchBar) {
                         BasicTextField(
                             value = searchQuery,
                             onValueChange = { viewModel.onSearchQueryChanged(it) },
-                            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).padding(end = 8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequester)
+                                .padding(end = 8.dp),
                             textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             singleLine = true,
@@ -150,35 +231,47 @@ fun TxtFileAnalysisScreen(
                                 }
                             }
                         )
-                        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                        LaunchedEffect(Unit) { focusRequester.requestFocus() } // Focus search
                     } else {
                         Text(fileName, maxLines = 1)
                     }
                 },
                 navigationIcon = {
-                    if (showSearchBar) {
-                        IconButton(onClick = {
-                            showSearchBar = false
-                            viewModel.clearSearch()
-                            focusManager.clearFocus()
-                        }) { Icon(Icons.Filled.ArrowBack, "Close Search") }
+                    if (isEditMode) {
+                        IconButton(onClick = { viewModel.attemptExitEditMode() }) { // Cancel Edit
+                            Icon(Icons.Filled.Close, contentDescription = "Close Edit Mode")
+                        }
+                    } else if (showSearchBar) {
+                        IconButton(onClick = { showSearchBar = false; viewModel.clearSearch(); focusManager.clearFocus() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close Search")
+                        }
                     } else {
-                        IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Filled.ArrowBack, "Back") }
+                        IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                     }
                 },
                 actions = {
-                    if (showSearchBar) {
-                        if (totalResults > 0) {
-                            Text("${currentResultIndex + 1}/$totalResults", Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp))
+                    if (isEditMode) {
+                        IconButton(onClick = { viewModel.initiateSaveAs() }) {
+                            Icon(Icons.Filled.SaveAs, contentDescription = "Save As")
                         }
+                        if (isSaving) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(end = 16.dp))
+                        } else {
+                            IconButton(onClick = { viewModel.saveChanges { viewModel.exitEditMode() } }) {
+                                Icon(Icons.Filled.Done, contentDescription = "Save Changes")
+                            }
+                        }
+                    } else if (showSearchBar) {
+                        // ... (Search actions: result count, up/down arrows - remain the same) ...
+                        if (totalResults > 0) { Text("${currentResultIndex + 1}/$totalResults", Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp)) }
                         IconButton(onClick = { viewModel.goToPreviousMatch() }, enabled = totalResults > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Previous") }
                         IconButton(onClick = { viewModel.goToNextMatch() }, enabled = totalResults > 0) { Icon(Icons.Filled.KeyboardArrowDown, "Next") }
-                    } else {
+                    } else { // Read mode, no search bar
                         IconButton(onClick = { showSearchBar = true }) { Icon(Icons.Filled.Search, "Search") }
                         IconButton(onClick = { showMenu = true }) { Icon(Icons.Filled.MoreVert, "More Options") }
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(text = { Text("Edit") }, onClick = { viewModel.enterEditMode(); showMenu = false })
                             DropdownMenuItem(text = { Text("Summary") }, onClick = { viewModel.generateSummary(); showMenu = false })
-                            DropdownMenuItem(text = { Text("Edit") }, onClick = { viewModel.toggleEditMode(); showMenu = false })
                         }
                     }
                 }
@@ -186,20 +279,34 @@ fun TxtFileAnalysisScreen(
         }
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f)) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) { // Ensure Box fills width
                 when {
                     isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                     error != null -> Text("Error: $error", color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center).padding(16.dp))
-                    fileContent != null -> {
+                    isEditMode -> {
+                        OutlinedTextField(
+                            value = editableContent,
+                            onValueChange = { viewModel.onEditableContentChanged(it) },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(editorScrollState)
+                                .padding(8.dp) // Standard padding for text fields
+                                .focusRequester(focusRequester), // For focus on entering edit mode
+                            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
+                            colors = OutlinedTextFieldDefaults.colors( // Match theme
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                            )
+                        )
+                    }
+                    fileContent != null -> { // Read mode
                         SelectionContainer {
                             Text(
                                 text = annotatedFileContent,
                                 modifier = Modifier.fillMaxSize().verticalScroll(textScrollState).padding(16.dp),
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 14.sp,
-                                onTextLayout = { layoutResult -> // Capture TextLayoutResult
-                                    textLayoutResultState = layoutResult
-                                }
+                                onTextLayout = { layoutResult -> textLayoutResultState = layoutResult }
                             )
                         }
                     }
