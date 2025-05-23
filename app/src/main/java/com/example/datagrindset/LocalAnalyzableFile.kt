@@ -11,7 +11,8 @@ enum class ProcessingStatus {
     PROCESSING, // Actively being processed or loaded
     SUCCESS,    // Processing completed successfully, or file opened for analysis
     FAILED,     // Processing failed, or error opening
-    UNSUPPORTED
+    UNSUPPORTED,
+    ERROR
 }
 
 // Data class to represent a file selected by the user from local storage

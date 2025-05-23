@@ -20,7 +20,6 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.util.LinkedList
-import androidx.documentfile.provider.DocumentFile
 
 // Data class for holding basic summary results
 data class SummaryData(
@@ -151,146 +150,32 @@ class TxtFileViewModel(application: Application, private var currentFileUri: Uri
         loadFileNameAndContent(currentFileUri)
     }
 
-    // In TxtFileViewModel
-    private fun loadFileNameAndContent(uriToLoad: Uri, isNewFileAfterSaveAs: Boolean = false) {
-        _isLoading.value = true
-        _error.value = null
+    private fun loadFileNameAndContent(uri: Uri, isNewFileAfterSaveAs: Boolean = false) {
         viewModelScope.launch {
-            val context = getApplication<Application>()
-            Log.d(TAG, "Attempting to load: $uriToLoad")
+            _isLoading.value = true; _error.value = null
             try {
-                // JUST TRY OPENINPUTSTREAM FIRST
-                context.contentResolver.openInputStream(uriToLoad)?.use { inputStream ->
-                    BufferedReader(InputStreamReader(inputStream)).use { reader ->
-                        val loadedText = reader.readText()
-                        _fileContent.value = loadedText
-                        _originalContentBeforeEdit.value = loadedText
-                        _editableContent.value = loadedText
-                        Log.d(TAG, "DEBUG: Successfully opened and read input stream for $uriToLoad")
-                        // Now try to get filename (if the above worked)
-                        val docFile = DocumentFile.fromSingleUri(context, uriToLoad)
-                        _fileName.value = docFile?.name ?: uriToLoad.lastPathSegment ?: "Unknown (debug)"
-                    }
-                } ?: run {
-                    _error.value = "DEBUG: openInputStream returned null for $uriToLoad."
-                    Log.e(TAG, "DEBUG: openInputStream returned null for $uriToLoad")
-                }
+                val context = getApplication<Application>()
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        _fileName.value = if (nameIndex != -1) cursor.getString(nameIndex) else uri.lastPathSegment ?: "Unknown File"
+                    } else { _fileName.value = uri.lastPathSegment ?: "Unknown File" }
+                } ?: run { _fileName.value = uri.lastPathSegment ?: "Unknown File" }
 
-            } catch (e: SecurityException) {
-                Log.e(TAG, "DEBUG: SecurityException for $uriToLoad", e)
-                _error.value = "DEBUG: Permission denied for $uriToLoad: ${e.message}"
-            } catch (e: Exception) {
-                Log.e(TAG, "DEBUG: Ex loading $uriToLoad", e)
-                _error.value = "DEBUG: Error loading file $uriToLoad: ${e.message}"
-            } finally {
-                _isLoading.value = false
-            }
+                if (!isNewFileAfterSaveAs) {
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        BufferedReader(InputStreamReader(inputStream)).use { reader ->
+                            val loadedText = reader.readText()
+                            _fileContent.value = loadedText; _originalContentBeforeEdit.value = loadedText; _editableContent.value = loadedText
+                        }
+                    } ?: run { _error.value = "Failed to open input stream for $uri"; _fileContent.value = null; _originalContentBeforeEdit.value = null; _editableContent.value = "" }
+                } else {
+                    _fileContent.value = _editableContent.value; _originalContentBeforeEdit.value = _editableContent.value
+                }
+            } catch (e: Exception) { _error.value = "Error loading $uri: ${e.localizedMessage}"; Log.e(TAG, "Ex loading $uri", e) }
+            finally { _isLoading.value = false }
         }
     }
-//    private fun loadFileNameAndContent(uriToLoad: Uri, isNewFileAfterSaveAs: Boolean = false) {
-//        _isLoading.value = true
-//        _error.value = null
-//        viewModelScope.launch {
-//            val context = getApplication<Application>()
-//            try {
-//                // Try to get display name using DocumentFile API first for SAF URIs
-//                val documentFile = DocumentFile.fromSingleUri(context, uriToLoad)
-//                if (documentFile != null && documentFile.exists()) {
-//                    _fileName.value = documentFile.name ?: uriToLoad.lastPathSegment ?: "Unknown File"
-//                } else {
-//                    // Fallback to ContentResolver query if DocumentFile fails or not applicable
-//                    // This is the part that often causes permission issues if not handled carefully
-//                    try {
-//                        context.contentResolver.query(uriToLoad, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-//                            if (cursor.moveToFirst()) {
-//                                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-//                                if (nameIndex != -1) {
-//                                    _fileName.value = cursor.getString(nameIndex)
-//                                } else {
-//                                    _fileName.value = uriToLoad.lastPathSegment ?: "Unknown File"
-//                                }
-//                            } else {
-//                                _fileName.value = uriToLoad.lastPathSegment ?: "Unknown File (no cursor data)"
-//                            }
-//                        } ?: run {
-//                            _fileName.value = uriToLoad.lastPathSegment ?: "Unknown File (query null)"
-//                            Log.w(TAG, "ContentResolver query returned null for display name: $uriToLoad")
-//                        }
-//                    } catch (e: SecurityException) {
-//                        Log.e(TAG, "SecurityException querying display name for $uriToLoad, falling back to path segment.", e)
-//                        _fileName.value = uriToLoad.lastPathSegment ?: "Unknown File (permission query)"
-//                        // Do not immediately throw error for filename, try to load content
-//                    } catch (e: Exception) {
-//                        Log.w(TAG, "Exception querying display name for $uriToLoad: ${e.message}")
-//                        _fileName.value = uriToLoad.lastPathSegment ?: "Unknown File (exception query)"
-//                    }
-//                }
-//
-//                if (!isNewFileAfterSaveAs) {
-//                    // Read content using openInputStream - this MUST work if permissions are correct
-//                    context.contentResolver.openInputStream(uriToLoad)?.use { inputStream ->
-//                        BufferedReader(InputStreamReader(inputStream)).use { reader ->
-//                            val loadedText = reader.readText()
-//                            _fileContent.value = loadedText
-//                            _originalContentBeforeEdit.value = loadedText
-//                            _editableContent.value = loadedText
-//                            Log.d(TAG, "Successfully loaded content for $uriToLoad")
-//                        }
-//                    } ?: run {
-//                        _error.value = "Failed to open input stream for $uriToLoad. Check permissions or URI validity."
-//                        Log.e(TAG, "openInputStream returned null for $uriToLoad")
-//                        _fileContent.value = null
-//                        _originalContentBeforeEdit.value = null
-//                        _editableContent.value = ""
-//                    }
-//                } else {
-//                    // Logic for "Save As" where content is already in editableContent
-//                    _fileContent.value = _editableContent.value
-//                    _originalContentBeforeEdit.value = _editableContent.value
-//                }
-//
-//            } catch (e: SecurityException) {
-//                Log.e(TAG, "SecurityException in loadFileNameAndContent for $uriToLoad", e)
-//                _error.value = "Permission denied for $uriToLoad: ${e.message}"
-//                _fileName.value = uriToLoad.lastPathSegment ?: "Permission Denied"
-//                _fileContent.value = null
-//            } catch (e: Exception) {
-//                Log.e(TAG, "Ex loading $uriToLoad", e) // Generic exception
-//                _error.value = "Error loading file $uriToLoad: ${e.message}"
-//                _fileContent.value = null
-//            } finally {
-//                _isLoading.value = false
-//            }
-//        }
-//    }
-
-
-//    private fun loadFileNameAndContent(uri: Uri, isNewFileAfterSaveAs: Boolean = false) {
-//        viewModelScope.launch {
-//            _isLoading.value = true; _error.value = null
-//            try {
-//                val context = getApplication<Application>()
-//                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-//                    if (cursor.moveToFirst()) {
-//                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-//                        _fileName.value = if (nameIndex != -1) cursor.getString(nameIndex) else uri.lastPathSegment ?: "Unknown File"
-//                    } else { _fileName.value = uri.lastPathSegment ?: "Unknown File" }
-//                } ?: run { _fileName.value = uri.lastPathSegment ?: "Unknown File" }
-//
-//                if (!isNewFileAfterSaveAs) {
-//                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
-//                        BufferedReader(InputStreamReader(inputStream)).use { reader ->
-//                            val loadedText = reader.readText()
-//                            _fileContent.value = loadedText; _originalContentBeforeEdit.value = loadedText; _editableContent.value = loadedText
-//                        }
-//                    } ?: run { _error.value = "Failed to open input stream for $uri"; _fileContent.value = null; _originalContentBeforeEdit.value = null; _editableContent.value = "" }
-//                } else {
-//                    _fileContent.value = _editableContent.value; _originalContentBeforeEdit.value = _editableContent.value
-//                }
-//            } catch (e: Exception) { _error.value = "Error loading $uri: ${e.localizedMessage}"; Log.e(TAG, "Ex loading $uri", e) }
-//            finally { _isLoading.value = false }
-//        }
-//    }
 
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query; searchJob?.cancel()
@@ -529,25 +414,12 @@ class TxtFileViewModel(application: Application, private var currentFileUri: Uri
     }
 }
 
-//class TxtFileViewModelFactory(
-//    private val application: Application,
-//    private val initialFileUri: Uri
-//) : ViewModelProvider.Factory {
-//    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-//        if (modelClass.isAssignableFrom(TxtFileViewModel::class.java)) {
-//            @Suppress("UNCHECKED_CAST")
-//            return TxtFileViewModel(application, initialFileUri) as T
-//        }
-//        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
-//    }
-//}
 class TxtFileViewModelFactory(
     private val application: Application,
-    private val initialFileUri: Uri // This is the URI we care about
+    private val initialFileUri: Uri
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(TxtFileViewModel::class.java)) {
-            Log.d("TxtFileViewModelFactory", "Creating TxtFileViewModel with URI: $initialFileUri") // ADD THIS LOG
             @Suppress("UNCHECKED_CAST")
             return TxtFileViewModel(application, initialFileUri) as T
         }

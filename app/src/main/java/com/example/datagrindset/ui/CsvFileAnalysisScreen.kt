@@ -1,5 +1,7 @@
 package com.example.datagrindset.ui
 
+import android.annotation.SuppressLint
+import android.app.Application
 import android.net.Uri
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -10,13 +12,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -32,24 +35,37 @@ import com.example.datagrindset.viewmodel.CsvFileViewModelFactory
 @Composable
 fun CsvFileAnalysisScreen(
     navController: NavController,
-    fileUri: Uri
+    fileUri: Uri,
+    viewModel: CsvFileViewModel // ViewModel is passed in
+
 ) {
     val context = LocalContext.current.applicationContext
-    val viewModel: CsvFileViewModel = viewModel(
-        factory = CsvFileViewModelFactory(context as android.app.Application, fileUri)
-    )
+//    val viewModel: CsvFileViewModel = viewModel(
+//        factory = CsvFileViewModelFactory(context as android.app.Application, fileUri)
+//    )
 
     val fileName by viewModel.fileName.collectAsState()
-    val headers by viewModel.headers.collectAsState()
-    val rows by viewModel.rows.collectAsState()
     val rowCount by viewModel.rowCount.collectAsState()
     val columnCount by viewModel.columnCount.collectAsState()
+    val headers by viewModel.headers.collectAsState()
+    val previewData by viewModel.previewData.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
 
-    val horizontalScrollState = rememberScrollState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(error) {
+        error?.let {
+            snackbarHostState.showSnackbar(
+                message = it,
+                duration = SnackbarDuration.Long
+            )
+            viewModel.clearError() // Clear error after showing
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(fileName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -65,72 +81,68 @@ fun CsvFileAnalysisScreen(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .padding(horizontal = 8.dp)
+                .padding(16.dp)
         ) {
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-            } else if (error != null) {
+            } else if (error != null && headers.isEmpty()) { // Show error prominently if loading failed critically
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Error: $error", color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                    Text("Error: $error", color = MaterialTheme.colorScheme.error)
                 }
             } else {
-                // Basic Info
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceAround
-                ) {
-                    Text("Rows: $rowCount", style = MaterialTheme.typography.bodyMedium)
-                    Text("Columns: $columnCount", style = MaterialTheme.typography.bodyMedium)
-                }
-                HorizontalDivider()
+                // File Info
+                Text("CSV Analysis", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(bottom = 16.dp))
+                InfoRow(label = "File Name:", value = fileName)
+                InfoRow(label = "Total Rows (incl. header):", value = rowCount.toString())
+                InfoRow(label = "Number of Columns:", value = columnCount.toString())
 
-                // CSV Table
-                if (headers.isNotEmpty() || rows.isNotEmpty()) {
-                    Column(modifier = Modifier.horizontalScroll(horizontalScrollState)) {
-                        // Header Row
-                        if (headers.isNotEmpty()) {
-                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                headers.forEach { header ->
-                                    TableCell(
-                                        text = header,
-                                        isHeader = true,
-                                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp) // Equal weight for now
-                                    )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Headers
+                if (headers.isNotEmpty()) {
+                    Text("Headers", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()) // Horizontal scroll for headers
+                            .padding(bottom = 8.dp)
+                    ) {
+                        headers.forEach { header ->
+                            TableCell(text = header, isHeader = true)
+                        }
+                    }
+                    HorizontalDivider()
+                } else {
+                    Text("No headers found or could not be parsed.", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Data Preview
+                if (previewData.isNotEmpty()) {
+                    Text("Data Preview (First ${previewData.size} rows)", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(previewData) { rowData ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()) // Horizontal scroll for data rows
+                            ) {
+                                rowData.forEach { cellData ->
+                                    TableCell(text = cellData)
                                 }
                             }
                             HorizontalDivider()
                         }
-
-                        // Data Rows
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(rows) { rowData ->
-                                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                                    // Ensure rowData has enough elements for each header, or pad if necessary
-                                    val displayableRowData = rowData.take(headers.size).toMutableList()
-                                    while (displayableRowData.size < headers.size) {
-                                        displayableRowData.add("") // Pad with empty strings if row is shorter than headers
-                                    }
-
-                                    displayableRowData.forEachIndexed { index, cell ->
-                                        TableCell(
-                                            text = cell,
-                                            modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
-                                        )
-                                    }
-                                }
-                                HorizontalDivider(
-                                    thickness = 0.5.dp,
-                                    color = MaterialTheme.colorScheme.outlineVariant
-                                )
-                            }
-                        }
                     }
-                } else {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("CSV is empty or could not be parsed correctly.")
-                    }
+                } else if (headers.isNotEmpty()) { // Headers were found, but no data rows
+                    Text("No data rows found in the preview.", style = MaterialTheme.typography.bodyMedium)
+                } else if (!isLoading) { // No headers and no data, and not loading
+                    Text("No data to display. The file might be empty or incorrectly formatted.", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
@@ -138,28 +150,43 @@ fun CsvFileAnalysisScreen(
 }
 
 @Composable
-fun TableCell(text: String, modifier: Modifier = Modifier, isHeader: Boolean = false) {
+fun InfoRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(text = label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.4f))
+        Text(text = value, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+fun TableCell(text: String, isHeader: Boolean = false, weight: Float = 1f) {
     Text(
         text = text,
-        modifier = modifier.padding(vertical = 8.dp), // Increased padding for better readability
-        fontSize = if (isHeader) 14.sp else 13.sp,
+        style = if (isHeader) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
         fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
-        maxLines = 2, // Allow cell content to wrap slightly
-        overflow = TextOverflow.Ellipsis,
-        textAlign = TextAlign.Start // Align text to the start of the cell
+        modifier = Modifier
+            .padding(horizontal = 8.dp, vertical = 12.dp)
+            .defaultMinSize(minWidth = 100.dp), // Ensure columns have a minimum width
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
     )
 }
 
+@SuppressLint("ViewModelConstructorInComposable")
 @Preview(showBackground = true)
 @Composable
 fun CsvFileAnalysisScreenPreview() {
     DataGrindsetTheme {
-        // For preview, you might need to mock the ViewModel or provide a dummy URI
-        // that your preview ViewModel setup can handle.
         val dummyUri = "content://com.example.datagrindset.provider/dummy.csv".toUri()
+        val context = LocalContext.current
+        val dummyViewModel = CsvFileViewModel(
+            application = context.applicationContext as Application,
+            initialFileUri = dummyUri,
+            initialFileName = "dummy.csv" // Provide the filename
+        )
         CsvFileAnalysisScreen(
-            navController = NavController(LocalContext.current),
-            fileUri = dummyUri
+            navController = NavController(context),
+            fileUri = dummyUri,
+            viewModel = dummyViewModel // Pass the dummy ViewModel
         )
     }
 }

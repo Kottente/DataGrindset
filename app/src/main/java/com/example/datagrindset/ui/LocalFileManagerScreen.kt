@@ -433,6 +433,7 @@ fun ProcessingStatusIndicator(status: ProcessingStatus) {
         ProcessingStatus.FAILED -> Triple(Icons.Filled.Error, MaterialTheme.colorScheme.error, "Failed")
         ProcessingStatus.UNSUPPORTED -> Triple(Icons.Filled.Error, MaterialTheme.colorScheme.onSurfaceVariant, "Unsupported")
         ProcessingStatus.NONE -> return // Don't show anything for NONE
+        ProcessingStatus.ERROR -> TODO()
     }
     Icon(imageVector = icon, contentDescription = "Status: $description", tint = color, modifier = Modifier.size(18.dp))
 }
