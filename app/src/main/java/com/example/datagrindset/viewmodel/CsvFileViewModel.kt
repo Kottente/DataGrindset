@@ -47,7 +47,7 @@ class CsvFileViewModel(
 
     companion object {
         private const val TAG = "CsvFileViewModel"
-        private const val PREVIEW_ROW_LIMIT = 10 // Number of data rows to preview (excluding header)
+        private const val PREVIEW_ROW_LIMIT = 10
     }
 
     init {
@@ -57,7 +57,6 @@ class CsvFileViewModel(
         loadCsvFile()
     }
 
-    // Basic CSV parser (can be improved for edge cases like quotes within quotes)
     private fun parseCsvLine(line: String): List<String> {
         val fields = mutableListOf<String>()
         val buffer = StringBuilder()
@@ -67,10 +66,9 @@ class CsvFileViewModel(
             val char = line[i]
             when {
                 char == '"' -> {
-                    // Handle escaped quotes ("")
                     if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
                         buffer.append('"')
-                        i++ // Skip the second quote of the pair
+                        i++
                     } else {
                         inQuotes = !inQuotes
                     }
@@ -85,10 +83,9 @@ class CsvFileViewModel(
             }
             i++
         }
-        fields.add(buffer.toString()) // Add the last field
+        fields.add(buffer.toString())
         return fields
     }
-
 
     fun loadCsvFile() {
         viewModelScope.launch {
@@ -99,33 +96,37 @@ class CsvFileViewModel(
             Log.i(TAG, "Current Filename for error messages: $initialFileName")
 
             val context = getApplication<Application>()
-            var pfd: ParcelFileDescriptor? = null
-            try {
-                // Reading file content should be on a background thread
-                withContext(Dispatchers.IO) {
-                    Log.d(TAG, "Attempting context.contentResolver.openFileDescriptor for URI: $initialFileUri")
-                    pfd = context.contentResolver.openFileDescriptor(initialFileUri, "r")
+            var pfd: ParcelFileDescriptor? = null // Keep it nullable here
 
-                    if (pfd == null) {
-                        Log.e(TAG, "ParcelFileDescriptor is NULL for URI: $initialFileUri")
-                        withContext(Dispatchers.Main) {
-                            _error.value = "Failed to open file descriptor for $initialFileName (PFD was null)."
-                        }
-                    } else {
-                        Log.i(TAG, "SUCCESSFULLY opened ParcelFileDescriptor for URI: $initialFileUri. Size: ${pfd.statSize}")
-                        FileInputStream(pfd.fileDescriptor).use { fis ->
+            try {
+                // Open PFD outside the withContext(Dispatchers.IO) or ensure it's final within.
+                // For simplicity, opening it and then passing to IO block if not null.
+                Log.d(TAG, "Attempting context.contentResolver.openFileDescriptor for URI: $initialFileUri")
+                pfd = context.contentResolver.openFileDescriptor(initialFileUri, "r")
+
+                if (pfd == null) {
+                    Log.e(TAG, "ParcelFileDescriptor is NULL for URI: $initialFileUri")
+                    _error.value = "Failed to open file descriptor for $initialFileName (PFD was null)."
+                    _isLoading.value = false // Ensure loading state is updated
+                    return@launch // Exit if PFD is null
+                }
+
+                // Now that pfd is confirmed non-null, use it in the IO context
+                withContext(Dispatchers.IO) {
+                    pfd?.let { parcelFileDescriptor -> // Use ?.let for safety, though checked above
+                        Log.i(TAG, "SUCCESSFULLY opened ParcelFileDescriptor for URI: $initialFileUri. Size: ${parcelFileDescriptor.statSize}")
+                        FileInputStream(parcelFileDescriptor.fileDescriptor).use { fis -> // Now pfd is non-null
                             BufferedReader(InputStreamReader(fis)).use { reader ->
                                 val allRows = mutableListOf<List<String>>()
                                 var line: String?
                                 var firstLine = true
 
                                 while (reader.readLine().also { line = it } != null) {
-                                    if (line.isNullOrBlank() && allRows.isEmpty()) continue // Skip initial blank lines
+                                    if (line.isNullOrBlank() && allRows.isEmpty()) continue
                                     val parsedFields = parseCsvLine(line!!)
                                     if (firstLine) {
                                         withContext(Dispatchers.Main) { _headers.value = parsedFields }
                                         firstLine = false
-                                        // Don't add header to allRows if you handle it separately for rowCount
                                     } else {
                                         allRows.add(parsedFields)
                                     }
@@ -133,36 +134,41 @@ class CsvFileViewModel(
 
                                 withContext(Dispatchers.Main) {
                                     _previewData.value = allRows.take(PREVIEW_ROW_LIMIT)
-                                    _rowCount.value = allRows.size + if(_headers.value.isNotEmpty()) 1 else 0 // Add 1 for header if present
+                                    _rowCount.value = allRows.size + if (_headers.value.isNotEmpty()) 1 else 0
                                     _columnCount.value = _headers.value.size
                                     if (_headers.value.isEmpty() && allRows.isNotEmpty() && allRows.first().isNotEmpty()) {
-                                        // Attempt to generate generic headers if none found but data exists
                                         _headers.value = List(allRows.first().size) { index -> "Column ${index + 1}" }
                                         _columnCount.value = _headers.value.size
-                                        // Recalculate row count if we just generated headers
-                                        _rowCount.value = allRows.size // Data rows only, as header was just made up
+                                        _rowCount.value = allRows.size
                                     }
                                 }
                                 Log.i(TAG, "CSV content loaded successfully. Headers: ${_headers.value.size}, Rows (data): ${allRows.size}")
                             }
                         }
+                    } ?: run {
+                        // This block should ideally not be reached if pfd null check above is done.
+                        // But as a fallback:
+                        Log.e(TAG, "PFD was null inside withContext(Dispatchers.IO) despite prior check. URI: $initialFileUri")
+                        withContext(Dispatchers.Main) {
+                            _error.value = "File descriptor became null unexpectedly for $initialFileName."
+                        }
                     }
                 }
             } catch (e: SecurityException) {
                 Log.e(TAG, "SecurityException in loadCsvFile for $initialFileUri: ${e.message}", e)
-                _error.value = "Permission Denied: $initialFileName. Please re-select the folder. (Details: ${e.message})"
+                _error.value = "Permission Denied: $initialFileName. Please re-select the folder. (Details: ${e.message?.take(100)})"
             } catch (e: Exception) {
                 Log.e(TAG, "Generic Exception in loadCsvFile for $initialFileUri: ${e.message}", e)
                 _error.value = "Error loading $initialFileName: ${e.localizedMessage}"
             } finally {
                 try {
-                    pfd?.close()
+                    pfd?.close() // Close PFD if it was opened
                 } catch (e: Exception) {
                     Log.e(TAG, "Error closing PFD: ${e.message}", e)
                 }
-                // Ensure isLoading is set on the Main thread
-                if (_isLoading.value) { // Avoid unnecessary switch if already handled by error path
-                    withContext(Dispatchers.Main) {
+                // Ensure isLoading is set on the Main thread if it hasn't been set by an early return/error
+                if (_isLoading.value) {
+                    withContext(Dispatchers.Main) { // Switch to main thread to update UI state
                         _isLoading.value = false
                     }
                 }
