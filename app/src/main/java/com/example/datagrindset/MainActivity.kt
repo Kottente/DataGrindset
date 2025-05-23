@@ -1,54 +1,77 @@
 package com.example.datagrindset
 
+import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavHost
+import androidx.lifecycle.viewmodel.compose.viewModel // Keep this for analysis ViewModels
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.example.datagrindset.ui.CsvFileAnalysisScreen
 import com.example.datagrindset.ui.LocalFileManagerScreen
+import com.example.datagrindset.ui.TxtFileAnalysisScreen
+import com.example.datagrindset.ui.navigation.Screen
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
+import com.example.datagrindset.viewmodel.CsvFileViewModelFactory
 import com.example.datagrindset.viewmodel.LocalFileManagerViewModel
 import com.example.datagrindset.viewmodel.LocalFileManagerViewModelFactory
-// Import your analysis screens here when they are created, e.g.:
-import com.example.datagrindset.ui.TxtFileAnalysisScreen
-import androidx.core.net.toUri
-
-
-// import com.example.datagrindset.ui.CsvFileAnalysisScreen
+import com.example.datagrindset.TxtFileViewModelFactory
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: LocalFileManagerViewModel by viewModels {
+    private val localFileManagerViewModel: LocalFileManagerViewModel by viewModels {
         LocalFileManagerViewModelFactory(application)
     }
 
-    // Launcher for selecting a directory tree
     private val openDirectoryLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        uri?.let {
-            // Persist read permissions. This is crucial for long-term access.
+        uri?.let { treeUri ->
+            Log.d("MainActivity", "OpenDocumentTree result URI: $treeUri")
             try {
                 val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION // Optional: if you ever need to write
-                contentResolver.takePersistableUriPermission(it, takeFlags)
-                viewModel.setRootTreeUri(it)
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                applicationContext.contentResolver.takePersistableUriPermission(treeUri, takeFlags)
+                Log.i("MainActivity", "Successfully took persistable permissions for tree: $treeUri")
+
+                val persistedPermissions = applicationContext.contentResolver.persistedUriPermissions
+                val hasPermission = persistedPermissions.any { it.uri == treeUri && it.isReadPermission }
+                if (hasPermission) {
+                    Log.i("MainActivity", "Verified: Persisted read permission is HELD for $treeUri")
+                } else {
+                    Log.e("MainActivity", "Verification FAILED: Persisted read permission is NOT HELD for $treeUri after taking.")
+                    Toast.makeText(this, "Failed to secure folder permissions. Please try again.", Toast.LENGTH_LONG).show()
+                    localFileManagerViewModel.setRootTreeUri(null)
+                    return@let
+                }
+                localFileManagerViewModel.setRootTreeUri(treeUri)
             } catch (e: SecurityException) {
-                // Handle the case where permissions could not be taken.
-                // The ViewModel will also handle setting its state appropriately if this fails.
-                viewModel.setRootTreeUri(it) // Let ViewModel try and handle error display if needed
-                // You might want to show a toast to the user here indicating permission failure.
-                // e.g., Toast.makeText(this, "Failed to get folder permissions", Toast.LENGTH_SHORT).show()
+                Log.e("MainActivity", "SecurityException taking persistable permissions for tree: $treeUri", e)
+                Toast.makeText(this, "Failed to get folder permissions. Please try again.", Toast.LENGTH_LONG).show()
+                localFileManagerViewModel.setRootTreeUri(null)
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Exception during OpenDocumentTree result handling for $treeUri", e)
+                Toast.makeText(this, "An error occurred with folder selection.", Toast.LENGTH_LONG).show()
+                localFileManagerViewModel.setRootTreeUri(null)
             }
+        } ?: run {
+            Log.d("MainActivity", "OpenDocumentTree result URI is null (user cancelled or error).")
         }
     }
 
@@ -57,197 +80,86 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             DataGrindsetTheme {
-                val navController = rememberNavController() // For Jetpack Compose Navigation
+                val navController = rememberNavController()
+                val application = this.applicationContext as Application
 
-                // Collecting all necessary states from the ViewModel
-                val rootTreeUri by viewModel.rootTreeUri.collectAsStateWithLifecycle()
-                val canNavigateUp by viewModel.canNavigateUp.collectAsStateWithLifecycle()
-                val currentPathDisplay by viewModel.currentPathDisplay.collectAsStateWithLifecycle()
-                val directoryEntries by viewModel.directoryEntries.collectAsStateWithLifecycle()
-                val fileProcessingStatusMap by viewModel.fileProcessingStatusMap.collectAsStateWithLifecycle()
-                val searchText by viewModel.searchText.collectAsStateWithLifecycle()
-                val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
-                val navigateToAnalysisTarget by viewModel.navigateToAnalysisTarget.collectAsStateWithLifecycle()
+                val navigateToAnalysisTarget by localFileManagerViewModel.navigateToAnalysisTarget.collectAsStateWithLifecycle()
 
-                // Navigation Host for managing different screens
-                NavHost(navController = navController, startDestination = "fileManager") {
-                    composable("fileManager") {
+                LaunchedEffect(navigateToAnalysisTarget) {
+                    navigateToAnalysisTarget?.let { fileEntry ->
+                        val route = when (fileEntry.mimeType?.lowercase()) {
+                            "text/plain", "text/markdown" ->
+                                Screen.TxtFileAnalysisScreen.createRoute(fileEntry.uri, fileEntry.name)
+                            "text/csv", "text/comma-separated-values", "application/csv" ->
+                                Screen.CsvFileAnalysisScreen.createRoute(fileEntry.uri, fileEntry.name)
+                            else -> null
+                        }
+                        route?.let {
+                            navController.navigate(it)
+                            localFileManagerViewModel.didNavigateToAnalysisScreen()
+                        }
+                    }
+                }
+
+                NavHost(navController = navController, startDestination = Screen.FileManagerScreen.route) {
+                    composable(Screen.FileManagerScreen.route) {
                         LocalFileManagerScreen(
-                            rootUriSelected = rootTreeUri != null,
-                            canNavigateUp = canNavigateUp,
-                            currentPath = currentPathDisplay,
-                            entries = directoryEntries,
-                            fileProcessingStatusMap = fileProcessingStatusMap,
-                            searchText = searchText,
-                            onSearchTextChanged = viewModel::onSearchTextChanged,
-                            currentSortOption = sortOption,
-                            onSortOptionSelected = viewModel::onSortOptionSelected,
-                            onSelectRootDirectoryClicked = {
-                                openDirectoryLauncher.launch(null) // Initial URI can be null
-                            },
-                            onNavigateToFolder = viewModel::navigateTo,
-                            onNavigateUp = viewModel::navigateUp,
-                            onPrepareFileForAnalysis = viewModel::prepareFileForAnalysis,
-                            onDeleteEntry = viewModel::deleteEntry,
-                            navigateToAnalysisTarget = navigateToAnalysisTarget,
-                            onDidNavigateToAnalysisScreen = viewModel::didNavigateToAnalysisScreen,
-                            navController = navController // Pass NavController for navigation actions
+                            navController = navController,
+                            viewModel = localFileManagerViewModel,
+                            onSelectRootDirectoryClicked = { // Pass the callback
+                                Log.d("MainActivity", "LocalFileManagerScreen requests OpenDocumentTree.")
+                                openDirectoryLauncher.launch(null)
+                            }
                         )
                     }
 
-                    composable("txtAnalysisScreen/{fileUri}") { backStackEntry ->
+                    composable(
+                        route = Screen.TxtFileAnalysisScreen.route + "/{fileUri}/{fileName}",
+                        arguments = listOf(
+                            navArgument("fileUri") { type = NavType.StringType },
+                            navArgument("fileName") { type = NavType.StringType }
+                        )
+                    ) { backStackEntry ->
                         val encodedFileUriString = backStackEntry.arguments?.getString("fileUri")
-                        if (encodedFileUriString != null) {
-                            // We encoded it once, so we might need to decode it once if the nav component didn't fully.
-                            // However, Uri.parse() can often handle already-decoded or partially encoded strings.
-                            // Let's try parsing directly first. If issues persist, explicitly decode.
-                            val fileUri = encodedFileUriString.toUri() // Try direct parse
-                            // If the above still has issues with encoding, you might try:
-                            // val decodedUriString = Uri.decode(encodedFileUriString)
-                            // val fileUri = Uri.parse(decodedUriString)
-                            TxtFileAnalysisScreen(navController = navController, fileUri = fileUri)
+                        val encodedFileNameString = backStackEntry.arguments?.getString("fileName")
+                        if (encodedFileUriString != null && encodedFileNameString != null) {
+                            val decodedUriString = URLDecoder.decode(encodedFileUriString, StandardCharsets.UTF_8.toString())
+                            val decodedFileNameString = URLDecoder.decode(encodedFileNameString, StandardCharsets.UTF_8.toString())
+                            val fileUri = Uri.parse(decodedUriString)
+
+                            val txtViewModel: com.example.datagrindset.viewmodel.TxtFileViewModel = viewModel(
+                                factory = TxtFileViewModelFactory(application, fileUri, decodedFileNameString)
+                            )
+                            TxtFileAnalysisScreen(navController = navController, fileUri = fileUri, viewModel = txtViewModel)
                         } else {
-                            // Handle error: fileUri not provided. Maybe navigate back or show error.
-                            Text("Error: TXT file URI not provided in navigation arguments.")
+                            Text("Error: TXT file URI or FileName not provided.")
                         }
                     }
 
-                    // Example destination for CSV file analysis
-                    composable("csvAnalysisScreen/{fileUri}") { backStackEntry ->
-                        val fileUriString = backStackEntry.arguments?.getString("fileUri")
-                        if (fileUriString != null) {
-                            val decodedUri = Uri.decode(fileUriString).toUri()
-                            // Replace with your actual CsvFileAnalysisScreen composable
-                            // CsvFileAnalysisScreen(navController = navController, fileUri = decodedUri)
-                            // For now, a placeholder:
-                            // Text("Placeholder for CSV Analysis Screen. URI: $decodedUri")
+                    composable(
+                        route = Screen.CsvFileAnalysisScreen.route + "/{fileUri}/{fileName}",
+                        arguments = listOf(
+                            navArgument("fileUri") { type = NavType.StringType },
+                            navArgument("fileName") { type = NavType.StringType }
+                        )
+                    ) { backStackEntry ->
+                        val encodedFileUriString = backStackEntry.arguments?.getString("fileUri")
+                        val encodedFileNameString = backStackEntry.arguments?.getString("fileName")
+                        if (encodedFileUriString != null && encodedFileNameString != null) {
+                            val decodedUriString = URLDecoder.decode(encodedFileUriString, StandardCharsets.UTF_8.toString())
+                            val decodedFileNameString = URLDecoder.decode(encodedFileNameString, StandardCharsets.UTF_8.toString())
+                            val fileUri = Uri.parse(decodedUriString)
+
+                            val csvViewModel: com.example.datagrindset.viewmodel.CsvFileViewModel = viewModel(
+                                factory = CsvFileViewModelFactory(application, fileUri, decodedFileNameString)
+                            )
+                            CsvFileAnalysisScreen(navController = navController, fileUri = fileUri, viewModel = csvViewModel)
                         } else {
-                            // Handle error: fileUri not provided
-                            // Text("Error: CSV file URI not provided.")
+                            Text("Error: CSV file URI or FileName not provided.")
                         }
                     }
-                    // Add more destinations for other analysis screens as needed
-                    // composable("csvAnalysisScreen/{fileUri}") { /* ... */ }
                 }
             }
         }
     }
 }
-
-
-//
-//class MainActivity : ComponentActivity() {
-//
-//    // Use the viewModels delegate with a factory
-//    private val viewModel: LocalFileManagerViewModel by viewModels {
-//        LocalFileManagerViewModelFactory(application)
-//    }
-//
-//    // ActivityResultLauncher for picking files
-//    private val filePickerLauncher = registerForActivityResult(
-//        ActivityResultContracts.OpenDocument() // Or .GetContent() if you don't need persistent access post-reboot for the original URI
-//    ) { uri ->
-//        uri?.let {
-//            // Grant persistent read permission if needed, especially for OpenDocument
-//            // contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-//            viewModel.addFile(it)
-//        }
-//    }
-//
-//    override fun onCreate(savedInstanceState: Bundle?) {
-//        super.onCreate(savedInstanceState)
-//        setContent {
-//            DataGrindsetTheme {
-//                val files by viewModel.files.collectAsStateWithLifecycle()
-//                val searchText by viewModel.searchText.collectAsStateWithLifecycle()
-//                val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
-//
-//                LocalFileManagerScreen(
-//                    files = files,
-//                    searchText = searchText,
-//                    onSearchTextChanged = viewModel::onSearchTextChanged,
-//                    currentSortOption = sortOption,
-//                    onSortOptionSelected = viewModel::onSortOptionSelected,
-//                    onAddFileClicked = {
-//                        // Launch the file picker
-//                        // You can specify MIME types here, e.g., arrayOf("text/csv", "application/json")
-//                        filePickerLauncher.launch(arrayOf("*/*"))
-//                    },
-//                    onProcessFile = viewModel::processFile,
-//                    onDeleteFile = viewModel::deleteFile
-//                )
-//            }
-//        }
-//    }
-//}
-
-
-
-
-
-
-//
-//class MainActivity : ComponentActivity() {
-//    override fun onCreate(savedInstanceState: Bundle?) {
-//        super.onCreate(savedInstanceState)
-//        setContent {
-//            DataGrindsetTheme {
-//                // Use the viewModel() delegate for easier ViewModel instantiation
-//                val fileManagerViewModel: FileManagerViewModel = viewModel(
-//                    factory = FileManagerViewModelFactory(applicationContext) // Create a simple factory
-//                )
-//
-//                val openDocumentLauncher = rememberLauncherForActivityResult(
-//                    contract = ActivityResultContracts.OpenDocument()
-//                ) { uri: Uri? ->
-//                    uri?.let { fileManagerViewModel.uploadFile(it) }
-//                }
-//
-//                // Collect the openFileEvent
-//                LaunchedEffect(Unit) { // Use Unit or a key that changes when you want to re-launch
-//                    fileManagerViewModel.openFileEvent.collect { details ->
-//                        val intent = Intent(Intent.ACTION_VIEW).apply {
-//                            setDataAndType(details.uri, details.mimeType)
-//                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-//                        }
-//                        try {
-//                            startActivity(intent)
-//                        } catch (e: ActivityNotFoundException) {
-//                            Toast.makeText(this@MainActivity, "Нет приложения для открытия файла", Toast.LENGTH_LONG).show()
-//                        }
-//                    }
-//                }
-//
-//                // Collect snackbar messages from ViewModel
-//                LaunchedEffect(Unit) {
-//                    fileManagerViewModel.snackbarMessage.collect { message ->
-//                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
-//                        // If you are using Compose SnackbarHost, you'd show it here
-//                    }
-//                }
-//
-//
-//                FileManagerScreen(
-//                    viewModel = fileManagerViewModel,
-//                    onPickFile = {
-//                        openDocumentLauncher.launch(arrayOf("*/*")) // Launch with a general MIME type
-//                    }
-//                )
-//            }
-//        }
-//    }
-//}
-//
-//// Simple ViewModelFactory for FileManagerViewModel
-//// You can place this in the same file or a separate file
-//
-//
-//class FileManagerViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
-//    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-//        if (modelClass.isAssignableFrom(FileManagerViewModel::class.java)) {
-//            @Suppress("UNCHECKED_CAST")
-//            return FileManagerViewModel(context.applicationContext) as T
-//        }
-//        throw IllegalArgumentException("Unknown ViewModel class")
-//    }
-//}

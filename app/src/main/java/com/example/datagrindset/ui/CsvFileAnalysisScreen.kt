@@ -1,6 +1,5 @@
 package com.example.datagrindset.ui
 
-import android.annotation.SuppressLint
 import android.app.Application
 import android.net.Uri
 import androidx.compose.foundation.horizontalScroll
@@ -23,27 +22,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import com.example.datagrindset.viewmodel.CsvFileViewModel
-import com.example.datagrindset.viewmodel.CsvFileViewModelFactory
+import kotlinx.coroutines.flow.MutableStateFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CsvFileAnalysisScreen(
     navController: NavController,
-    fileUri: Uri,
-    viewModel: CsvFileViewModel // ViewModel is passed in
-
+    fileUri: Uri, // Kept for reference, ViewModel is primary data source
+    viewModel: CsvFileViewModel
 ) {
-    val context = LocalContext.current.applicationContext
-//    val viewModel: CsvFileViewModel = viewModel(
-//        factory = CsvFileViewModelFactory(context as android.app.Application, fileUri)
-//    )
-
     val fileName by viewModel.fileName.collectAsState()
     val rowCount by viewModel.rowCount.collectAsState()
     val columnCount by viewModel.columnCount.collectAsState()
@@ -87,42 +78,50 @@ fun CsvFileAnalysisScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-            } else if (error != null && headers.isEmpty()) { // Show error prominently if loading failed critically
+            } else if (error != null && headers.isEmpty() && previewData.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Error: $error", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        text = "Error loading file: $error",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
                 }
             } else {
-                // File Info
                 Text("CSV Analysis", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(bottom = 16.dp))
                 InfoRow(label = "File Name:", value = fileName)
-                InfoRow(label = "Total Rows (incl. header):", value = rowCount.toString())
-                InfoRow(label = "Number of Columns:", value = columnCount.toString())
+                InfoRow(label = "Total Rows (incl. header if parsed):", value = rowCount.toString())
+                InfoRow(label = "Number of Columns (based on header):", value = columnCount.toString())
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Headers
                 if (headers.isNotEmpty()) {
                     Text("Headers", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
-                    Row(
+                    Surface( // Corrected: Wrap Row in Surface
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()) // Horizontal scroll for headers
-                            .padding(bottom = 8.dp)
+                            .padding(bottom = 8.dp),
+                        tonalElevation = 1.dp, // Apply elevation to Surface
+                        shape = MaterialTheme.shapes.small // Optional: apply shape
                     ) {
-                        headers.forEach { header ->
-                            TableCell(text = header, isHeader = true)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            headers.forEach { header ->
+                                TableCell(text = header, isHeader = true)
+                            }
                         }
                     }
                     HorizontalDivider()
-                } else {
+                } else if (!isLoading){
                     Text("No headers found or could not be parsed.", style = MaterialTheme.typography.bodyMedium)
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Data Preview
                 if (previewData.isNotEmpty()) {
-                    Text("Data Preview (First ${previewData.size} rows)", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+                    Text("Data Preview (First ${previewData.size} data rows)", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -130,19 +129,28 @@ fun CsvFileAnalysisScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()) // Horizontal scroll for data rows
+                                    .horizontalScroll(rememberScrollState())
                             ) {
-                                rowData.forEach { cellData ->
+                                val cellsToDisplay = if (headers.isNotEmpty()) rowData.take(headers.size) else rowData
+                                cellsToDisplay.forEach { cellData ->
                                     TableCell(text = cellData)
+                                }
+                                if (headers.isNotEmpty() && rowData.size < headers.size) {
+                                    repeat(headers.size - rowData.size) {
+                                        TableCell(text = "")
+                                    }
                                 }
                             }
                             HorizontalDivider()
                         }
                     }
-                } else if (headers.isNotEmpty()) { // Headers were found, but no data rows
+                } else if (headers.isNotEmpty() && !isLoading) {
                     Text("No data rows found in the preview.", style = MaterialTheme.typography.bodyMedium)
-                } else if (!isLoading) { // No headers and no data, and not loading
+                } else if (!isLoading && headers.isEmpty()) {
                     Text("No data to display. The file might be empty or incorrectly formatted.", style = MaterialTheme.typography.bodyMedium)
+                }
+                if (error != null && (headers.isNotEmpty() || previewData.isNotEmpty())) {
+                    Text("Note: $error", color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top=8.dp))
                 }
             }
         }
@@ -151,27 +159,31 @@ fun CsvFileAnalysisScreen(
 
 @Composable
 fun InfoRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(text = label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.4f))
         Text(text = value, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-fun TableCell(text: String, isHeader: Boolean = false, weight: Float = 1f) {
+fun TableCell(text: String, isHeader: Boolean = false) {
     Text(
         text = text,
         style = if (isHeader) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
         fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
         modifier = Modifier
-            .padding(horizontal = 8.dp, vertical = 12.dp)
-            .defaultMinSize(minWidth = 100.dp), // Ensure columns have a minimum width
+            .defaultMinSize(minWidth = 100.dp)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis
     )
 }
 
-@SuppressLint("ViewModelConstructorInComposable")
 @Preview(showBackground = true)
 @Composable
 fun CsvFileAnalysisScreenPreview() {
@@ -181,12 +193,22 @@ fun CsvFileAnalysisScreenPreview() {
         val dummyViewModel = CsvFileViewModel(
             application = context.applicationContext as Application,
             initialFileUri = dummyUri,
-            initialFileName = "dummy.csv" // Provide the filename
+            initialFileName = "dummy.csv"
         )
+        LaunchedEffect(Unit) {
+            (dummyViewModel.headers as MutableStateFlow).value = listOf("ID", "Name", "Value")
+            (dummyViewModel.previewData as MutableStateFlow).value = listOf(
+                listOf("1", "Alice", "100"),
+                listOf("2", "Bob", "200")
+            )
+            (dummyViewModel.rowCount as MutableStateFlow).value = 3
+            (dummyViewModel.columnCount as MutableStateFlow).value = 3
+        }
+
         CsvFileAnalysisScreen(
             navController = NavController(context),
             fileUri = dummyUri,
-            viewModel = dummyViewModel // Pass the dummy ViewModel
+            viewModel = dummyViewModel
         )
     }
 }

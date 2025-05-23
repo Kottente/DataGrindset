@@ -1,23 +1,26 @@
-// In viewmodel/LocalFileManagerViewModel.kt
 package com.example.datagrindset.viewmodel
 
 import android.app.Application
 import android.content.ContentResolver
-import android.content.Context // For SharedPreferences
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
+import android.util.Log
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.datagrindset.ProcessingStatus
 import com.example.datagrindset.ui.SortOption
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.util.UUID // Keep for potential future use, though DocumentFile URIs are main IDs now
-import androidx.core.net.toUri
-import com.example.datagrindset.ProcessingStatus
+import kotlinx.coroutines.withContext
 
-// (DirectoryEntry sealed class remains the same as before)
+// DirectoryEntry sealed class should be the same as your current working one
 sealed class DirectoryEntry {
     abstract val id: String
     abstract val name: String
@@ -31,7 +34,6 @@ sealed class DirectoryEntry {
         val size: Long,
         val dateModified: Long,
         val mimeType: String?,
-        // We will get status from a separate map in the ViewModel
     ) : DirectoryEntry() {
         override val isDirectory: Boolean = false
     }
@@ -54,20 +56,19 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
 
     companion object {
         private const val KEY_ROOT_TREE_URI = "root_tree_uri"
+        private const val TAG = "LFMViewModel"
     }
 
     private val _rootTreeUri = MutableStateFlow<Uri?>(null)
     val rootTreeUri: StateFlow<Uri?> = _rootTreeUri.asStateFlow()
 
-    // Store URI and display name for path segments
     private data class PathSegment(val uri: Uri, val name: String)
     private val _currentPathSegmentsList = MutableStateFlow<List<PathSegment>>(emptyList())
 
     val canNavigateUp: StateFlow<Boolean> =
         combine(_rootTreeUri, _currentPathSegmentsList) { root, segments ->
-            root != null && segments.size > 1 // Can navigate up if not at the root of the selected tree
+            root != null && segments.size > 1
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
 
     val currentPathDisplay: StateFlow<String> =
         _currentPathSegmentsList.map { segments ->
@@ -75,69 +76,69 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             else segments.joinToString(" > ") { it.name }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "No folder selected")
 
-
     private val _searchText = MutableStateFlow("")
     val searchText: StateFlow<String> = _searchText.asStateFlow()
 
     private val _sortOption = MutableStateFlow(SortOption.BY_NAME_ASC)
     val sortOption: StateFlow<SortOption> = _sortOption.asStateFlow()
 
-    // For managing processing status of files
     private val _fileProcessingStatusMap = MutableStateFlow<Map<Uri, Pair<ProcessingStatus, String?>>>(emptyMap())
     val fileProcessingStatusMap: StateFlow<Map<Uri, Pair<ProcessingStatus, String?>>> = _fileProcessingStatusMap.asStateFlow()
-    // New StateFlow to signal navigation to an analysis screen
+
     private val _navigateToAnalysisTarget = MutableStateFlow<DirectoryEntry.FileEntry?>(null)
     val navigateToAnalysisTarget: StateFlow<DirectoryEntry.FileEntry?> = _navigateToAnalysisTarget.asStateFlow()
-
 
     val directoryEntries: StateFlow<List<DirectoryEntry>> =
         combine(
             _currentPathSegmentsList,
             _searchText,
             _sortOption,
-            _fileProcessingStatusMap // Include status map to trigger recomposition on status change
+            _fileProcessingStatusMap
         ) { currentSegments, text, sort, statusMap ->
-            val currentFolderUri = currentSegments.lastOrNull()?.uri ?: return@combine emptyList()
+            val currentFolderUri = currentSegments.lastOrNull()?.uri
+            if (currentFolderUri == null) {
+                Log.d(TAG, "No current folder URI, returning empty list.")
+                return@combine emptyList()
+            }
+            Log.d(TAG, "Fetching entries for folder URI: $currentFolderUri")
 
-            // Ensure we have permissions if this is a persisted URI being re-accessed
-            try {
-                val persistedPermissions = contentResolver.persistedUriPermissions
-                if (persistedPermissions.none { it.uri == currentFolderUri && it.isReadPermission }) {
-                    // Attempt to re-check root if current is not directly permitted (might be child of permitted root)
-                    _rootTreeUri.value?.let { rootUri ->
-                        if (persistedPermissions.none { it.uri == rootUri && it.isReadPermission }) {
-                            // Permissions might have been revoked or not fully established.
-                            // Consider prompting user to reselect the root folder.
-                            // For now, we'll let it try and fail below if access is denied.
-                            println("Warning: Read permission for $rootUri might be missing.")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                println("Error checking persisted permissions: $e")
+            val rootOfCurrent = DocumentsContract.getTreeDocumentId(currentFolderUri)?.let { treeDocId ->
+                DocumentsContract.buildTreeDocumentUri(currentFolderUri.authority!!, treeDocId)
+            } ?: currentFolderUri
+
+            val hasPermissionForRootOfCurrent = contentResolver.persistedUriPermissions.any { persistedUri ->
+                persistedUri.uri == rootOfCurrent && persistedUri.isReadPermission
             }
 
+            if (!hasPermissionForRootOfCurrent) {
+                Log.e(TAG, "No persisted read permission for the root of $currentFolderUri (root: $rootOfCurrent). Cannot list files.")
+                _rootTreeUri.value?.let { originalRoot ->
+                    Log.e(TAG, "Original selected root $originalRoot permission: ${contentResolver.persistedUriPermissions.any {it.uri == originalRoot && it.isReadPermission}}")
+                }
+                return@combine emptyList()
+            }
+            Log.i(TAG, "Confirmed read permission for the root of $currentFolderUri (root: $rootOfCurrent)")
 
             val currentDirectory = DocumentFile.fromTreeUri(getApplication(), currentFolderUri)
-            // We should primarily use fromTreeUri for the root,
-            // and for children, their URIs are typically usable with fromSingleUri
-            // or by finding them via parentDocumentFile.findFile(name)
-            // For simplicity, if currentFolderUri IS the tree URI from DocumentFile.fromTreeUri
-            // it will work. If it's a child URI, we might need to be more careful.
-            // Let's assume currentFolderUri is always a valid URI for a directory.
-
             if (currentDirectory == null || !currentDirectory.isDirectory) {
-                println("Failed to access directory: $currentFolderUri. Is it valid or permissions granted?")
+                Log.e(TAG, "Failed to access directory DocumentFile or not a directory: $currentFolderUri.")
+                return@combine emptyList()
+            }
+            if (!currentDirectory.canRead()) {
+                Log.e(TAG, "Cannot read directory DocumentFile: $currentFolderUri")
                 return@combine emptyList()
             }
 
             val entries = currentDirectory.listFiles().mapNotNull { docFile ->
-                if (docFile.isDirectory) {
+                if (!docFile.canRead()) {
+                    Log.w(TAG, "Cannot read child DocumentFile: ${docFile.name} at ${docFile.uri}")
+                    null
+                } else if (docFile.isDirectory) {
                     DirectoryEntry.FolderEntry(
                         id = docFile.uri.toString(),
                         name = docFile.name ?: "Unnamed Folder",
                         uri = docFile.uri,
-                        childCount = docFile.listFiles().count { it.name != null } // Count non-null names
+                        childCount = docFile.listFiles().count { it.name != null && it.canRead() }
                     )
                 } else {
                     DirectoryEntry.FileEntry(
@@ -147,10 +148,10 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                         size = docFile.length(),
                         dateModified = docFile.lastModified(),
                         mimeType = docFile.type
-                        // Status will be looked up from _fileProcessingStatusMap by the UI
                     )
                 }
             }
+            Log.d(TAG, "Found ${entries.size} readable entries in $currentFolderUri")
 
             val filteredList = if (text.isBlank()) {
                 entries
@@ -158,7 +159,6 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                 entries.filter { it.name.contains(text, ignoreCase = true) }
             }
 
-            // Apply sorting (using the corrected helper from before)
             filteredList.sortedWith(
                 compareBy<DirectoryEntry> { !it.isDirectory }
                     .thenApplySortOption(sort)
@@ -171,70 +171,102 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         val persistedUriString = sharedPreferences.getString(KEY_ROOT_TREE_URI, null)
         persistedUriString?.let { uriString ->
             val uri = uriString.toUri()
-            // Check if we still have permission for this URI
+            Log.d(TAG, "Found persisted root URI: $uri")
             val persistedPermissions = contentResolver.persistedUriPermissions
             if (persistedPermissions.any { it.uri == uri && it.isReadPermission }) {
+                Log.i(TAG, "Successfully re-acquired persisted permission for root URI: $uri")
                 _rootTreeUri.value = uri
                 val rootDocFile = DocumentFile.fromTreeUri(getApplication(), uri)
-                if (rootDocFile != null && rootDocFile.isDirectory) {
+                if (rootDocFile != null && rootDocFile.isDirectory && rootDocFile.canRead()) {
                     _currentPathSegmentsList.value = listOf(PathSegment(uri, rootDocFile.name ?: "Root"))
                 } else {
-                    // Root URI is invalid or no longer a directory, clear it
+                    Log.w(TAG, "Persisted root URI $uri is invalid, not a directory, or not readable. Clearing.")
                     clearRootTreeUriPersistence()
                 }
             } else {
-                // No persisted permission, clear it
+                Log.w(TAG, "No persisted read permission for root URI: $uri. Clearing.")
                 clearRootTreeUriPersistence()
             }
-        }
-        // Load any persisted file statuses if needed (e.g., from a database or JSON in SharedPreferences)
+        } ?: Log.d(TAG, "No persisted root URI found.")
     }
 
     private fun clearRootTreeUriPersistence() {
-        sharedPreferences.edit().remove(KEY_ROOT_TREE_URI).apply()
+        Log.i(TAG, "Clearing persisted root tree URI.")
+        _rootTreeUri.value?.let {
+            try {
+                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                contentResolver.releasePersistableUriPermission(it, takeFlags)
+                Log.i(TAG, "Released persisted permissions for $it")
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException releasing permissions for $it", e)
+            }
+        }
+        sharedPreferences.edit { remove(KEY_ROOT_TREE_URI) }
         _rootTreeUri.value = null
         _currentPathSegmentsList.value = emptyList()
     }
 
-    fun setRootTreeUri(uri: Uri) {
+    fun setRootTreeUri(uri: Uri?) {
+        if (uri == null) {
+            clearRootTreeUriPersistence()
+            return
+        }
         try {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Permission should have been taken by MainActivity.
+            // We just verify and use it.
+            val persistedPermissions = contentResolver.persistedUriPermissions
+            if (!persistedPermissions.any { it.uri == uri && it.isReadPermission }) {
+                Log.e(TAG, "setRootTreeUri: Permission for $uri was NOT persisted by MainActivity. Attempting to take it now (fallback).")
+                // Fallback: Attempt to take permission. This is ideally done by the Activity.
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, takeFlags)
+                // Re-check after attempt
+                if (!contentResolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }) {
+                    Log.e(TAG, "setRootTreeUri: Fallback permission take FAILED for $uri.")
+                    // Handle failure: clear URI, show error, etc.
+                    _rootTreeUri.value = null
+                    _currentPathSegmentsList.value = emptyList()
+                    return
+                }
+                Log.i(TAG, "setRootTreeUri: Fallback permission take SUCCEEDED for $uri.")
+            } else {
+                Log.i(TAG, "setRootTreeUri: Confirmed persisted permission for $uri.")
+            }
+
+
             val rootDocFile = DocumentFile.fromTreeUri(getApplication(), uri)
-            if (rootDocFile != null && rootDocFile.isDirectory) {
+            if (rootDocFile != null && rootDocFile.isDirectory && rootDocFile.canRead()) {
                 _rootTreeUri.value = uri
                 _currentPathSegmentsList.value = listOf(PathSegment(uri, rootDocFile.name ?: "Selected Folder"))
-                sharedPreferences.edit().putString(KEY_ROOT_TREE_URI, uri.toString()).apply()
+                sharedPreferences.edit { putString(KEY_ROOT_TREE_URI, uri.toString()) }
+                Log.i(TAG, "Root tree URI set to: $uri, Name: ${rootDocFile.name}")
             } else {
-                // Not a valid directory tree
+                Log.e(TAG, "Provided URI $uri is not a valid directory tree or not readable.")
                 _rootTreeUri.value = null
                 _currentPathSegmentsList.value = emptyList()
-                // Potentially show an error to the user
+                // No need to release here if it wasn't properly set or used
             }
         } catch (e: SecurityException) {
-            println("SecurityException setting root tree URI: $e")
+            Log.e(TAG, "SecurityException in setRootTreeUri for: $uri", e)
             _rootTreeUri.value = null
             _currentPathSegmentsList.value = emptyList()
-            // Potentially show an error to the user
         }
     }
 
     fun navigateTo(folderEntry: DirectoryEntry.FolderEntry) {
-        // Ensure the folder URI is valid and we can access it.
-        val folderDocFile = DocumentFile.fromTreeUri(getApplication(), folderEntry.uri) // or fromSingleUri if appropriate
-            ?: DocumentFile.fromSingleUri(getApplication(), folderEntry.uri)
-
-        if (folderDocFile != null && folderDocFile.isDirectory) {
+        Log.d(TAG, "Navigating to folder: ${folderEntry.name}, URI: ${folderEntry.uri}")
+        val folderDocFile = DocumentFile.fromTreeUri(getApplication(), folderEntry.uri)
+        if (folderDocFile != null && folderDocFile.isDirectory && folderDocFile.canRead()) {
             _currentPathSegmentsList.value = _currentPathSegmentsList.value + PathSegment(folderEntry.uri, folderEntry.name)
         } else {
-            println("Cannot navigate to folder: ${folderEntry.name}, URI: ${folderEntry.uri} is not a valid directory or not accessible.")
-            // Optionally, refresh current directory if navigation fails due to stale data
-            // _currentPathSegmentsList.value = _currentPathSegmentsList.value // to trigger re-fetch of current
+            Log.e(TAG, "Cannot navigate to folder: ${folderEntry.name}, URI: ${folderEntry.uri}. Not a valid directory or not readable.")
         }
     }
 
     fun navigateUp() {
         if (_currentPathSegmentsList.value.size > 1) {
             _currentPathSegmentsList.value = _currentPathSegmentsList.value.dropLast(1)
+            Log.d(TAG, "Navigated up. New path: ${currentPathDisplay.value}")
         }
     }
 
@@ -250,83 +282,104 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         _fileProcessingStatusMap.value = _fileProcessingStatusMap.value.toMutableMap().apply {
             this[fileUri] = Pair(status, summary)
         }
-        // TODO: Persist this map if needed (e.g., if statuses should survive app restart)
     }
 
     fun prepareFileForAnalysis(fileEntry: DirectoryEntry.FileEntry) {
-        val mimeType = fileEntry.mimeType?.lowercase()
+        val targetUri = fileEntry.uri
+        val targetName = fileEntry.name
+        Log.i(TAG, "Preparing analysis for: $targetName, URI: $targetUri, Mime: ${fileEntry.mimeType}")
 
+        // --- DEBUGGING STEP (from previous attempts, good to keep) ---
+        var canOpenFileInLFM = false
+        try {
+            val context = getApplication<Application>()
+            Log.d(TAG, "Attempting to open PFD for $targetUri in LFMViewModel for read test.")
+            context.contentResolver.openFileDescriptor(targetUri, "r")?.use { pfd ->
+                Log.i(TAG, "LFM DEBUG: Successfully opened PFD for $targetUri. Size: ${pfd.statSize}. File is readable here.")
+                canOpenFileInLFM = true
+                // pfd.close() // .use will close it
+            } ?: run {
+                Log.e(TAG, "LFM DEBUG: PFD was null for $targetUri during read test.")
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "LFM DEBUG: SecurityException opening PFD for $targetUri: ${e.message}", e)
+            updateFileProcessingStatus(targetUri, ProcessingStatus.ERROR, "LFM Permission: ${e.message?.take(50)}")
+            return
+        } catch (e: Exception) {
+            Log.e(TAG, "LFM DEBUG: Exception opening PFD for $targetUri: ${e.message}", e)
+            updateFileProcessingStatus(targetUri, ProcessingStatus.ERROR, "LFM File Error: ${e.message?.take(50)}")
+            return
+        }
+
+        if (!canOpenFileInLFM) {
+            Log.e(TAG, "LFM DEBUG: Failed read test for $targetUri. Not proceeding to analysis.")
+            if (fileProcessingStatusMap.value[targetUri]?.first != ProcessingStatus.ERROR) {
+                updateFileProcessingStatus(targetUri, ProcessingStatus.ERROR, "LFM: Open failed.")
+            }
+            return
+        }
+        // --- END DEBUGGING STEP ---
+
+        val mimeType = fileEntry.mimeType?.lowercase()
         when (mimeType) {
-            "text/plain", "text/markdown" -> { // Assuming markdown is also text
-                updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.SUCCESS, "Ready to open text file")
-                _navigateToAnalysisTarget.value = fileEntry // Signal navigation
+            "text/plain", "text/markdown" -> {
+                updateFileProcessingStatus(targetUri, ProcessingStatus.SUCCESS, "Ready for TXT analysis")
+                _navigateToAnalysisTarget.value = fileEntry
             }
-            "text/csv" -> {
-                updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.SUCCESS, "Ready to open CSV file")
-                _navigateToAnalysisTarget.value = fileEntry // Signal navigation
+            "text/csv", "text/comma-separated-values", "application/csv" -> { // Added "application/csv"
+                updateFileProcessingStatus(targetUri, ProcessingStatus.SUCCESS, "Ready for CSV analysis")
+                _navigateToAnalysisTarget.value = fileEntry
             }
-            // Add more supported types here later (e.g., "application/json")
             else -> {
-                updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.UNSUPPORTED, "File type not supported for analysis.")
-                // _navigateToAnalysisTarget remains null or is set to null if you want to clear previous signals
+                Log.w(TAG, "Unsupported file type for analysis: $mimeType ($targetName)")
+                updateFileProcessingStatus(targetUri, ProcessingStatus.UNSUPPORTED, "File type '$mimeType' not supported.")
             }
         }
     }
+
     fun didNavigateToAnalysisScreen() {
         _navigateToAnalysisTarget.value = null
     }
 
     fun deleteEntry(entry: DirectoryEntry) {
         viewModelScope.launch {
-            // For children, their URIs are often 'single' URIs.
-            // The root tree URI itself cannot be deleted this way directly.
-            val documentFile = DocumentFile.fromSingleUri(getApplication(), entry.uri)
-                ?: DocumentFile.fromTreeUri(getApplication(), entry.uri) // Fallback for root/special cases
+            val documentFileToDelete = DocumentFile.fromTreeUri(getApplication(), entry.uri)
+                ?: DocumentFile.fromSingleUri(getApplication(), entry.uri)
 
-            if (documentFile != null && documentFile.uri == _rootTreeUri.value && _currentPathSegmentsList.value.size == 1) {
-                println("Cannot delete the root of the selected tree directly. User should unselect/change root.")
-                // Or, you could clear the root URI here: clearRootTreeUriPersistence()
+            if (documentFileToDelete == null || !documentFileToDelete.exists()) {
+                Log.e(TAG, "DocumentFile not found or does not exist for deletion: ${entry.uri}")
+                return@launch
+            }
+            if (documentFileToDelete.uri == _rootTreeUri.value && _currentPathSegmentsList.value.size == 1) {
+                Log.w(TAG, "Attempt to delete the root of the selected tree. Aborting.")
                 return@launch
             }
 
-            val success = try { documentFile?.delete() } catch (e: Exception) { false }
+            val success = try { documentFileToDelete.delete() } catch (e: Exception) {
+                Log.e(TAG, "Exception during delete for ${entry.name} at ${entry.uri}", e); false
+            }
 
-            if (success == true) { // Explicitly check for true, as delete() returns Boolean?
-                // Remove from status map if it was a file
+            if (success) {
+                Log.i(TAG, "Successfully deleted ${entry.name} at ${entry.uri}")
                 if (entry is DirectoryEntry.FileEntry) {
-                    _fileProcessingStatusMap.value = _fileProcessingStatusMap.value.toMutableMap().apply {
-                        remove(entry.uri)
-                    }
+                    _fileProcessingStatusMap.value = _fileProcessingStatusMap.value.toMutableMap().apply { remove(entry.uri) }
                 }
-                // Force a refresh of the current directory's contents
-                // Re-assigning _currentPathSegmentsList.value to itself will trigger the combine operator
-                _currentPathSegmentsList.value = _currentPathSegmentsList.value.toList() // Create new list instance
+                _currentPathSegmentsList.value = _currentPathSegmentsList.value.toList()
             } else {
-                println("Failed to delete ${entry.name} at ${entry.uri}")
-                // Show error to user
+                Log.e(TAG, "Failed to delete ${entry.name} at ${entry.uri}")
             }
         }
     }
-    // (The thenApplySortOption helper function remains the same)
 }
 
-// Helper extension function to apply the specific sort logic (ensure this is in the file or accessible)
 private fun <T> Comparator<T>.thenApplySortOption(sortOption: SortOption): Comparator<T> where T : DirectoryEntry {
     val comparator = when (sortOption) {
         SortOption.BY_NAME_ASC -> compareBy<T> { it.name.lowercase() }
         SortOption.BY_NAME_DESC -> compareByDescending<T> { it.name.lowercase() }
-        SortOption.BY_DATE_ASC -> compareBy<T> {
-            if (it is DirectoryEntry.FileEntry) it.dateModified else Long.MAX_VALUE
-        }
-        SortOption.BY_DATE_DESC -> compareByDescending<T> {
-            if (it is DirectoryEntry.FileEntry) it.dateModified else Long.MIN_VALUE
-        }
-        SortOption.BY_SIZE_ASC -> compareBy<T> {
-            if (it is DirectoryEntry.FileEntry) it.size else Long.MAX_VALUE
-        }
-        SortOption.BY_SIZE_DESC -> compareByDescending<T> {
-            if (it is DirectoryEntry.FileEntry) it.size else Long.MIN_VALUE
-        }
+        SortOption.BY_DATE_ASC -> compareBy<T> { if (it is DirectoryEntry.FileEntry) it.dateModified else Long.MAX_VALUE }
+        SortOption.BY_DATE_DESC -> compareByDescending<T> { if (it is DirectoryEntry.FileEntry) it.dateModified else Long.MIN_VALUE }
+        SortOption.BY_SIZE_ASC -> compareBy<T> { if (it is DirectoryEntry.FileEntry) it.size else Long.MAX_VALUE }
+        SortOption.BY_SIZE_DESC -> compareByDescending<T> { if (it is DirectoryEntry.FileEntry) it.size else Long.MIN_VALUE }
     }
     return this.thenComparing(comparator)
 }
