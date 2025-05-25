@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -47,7 +48,7 @@ class CsvFileViewModel(
 
     companion object {
         private const val TAG = "CsvFileViewModel"
-        private const val PREVIEW_ROW_LIMIT = 10
+        private const val PREVIEW_ROW_LIMIT = 20
     }
 
     init {
@@ -74,7 +75,7 @@ class CsvFileViewModel(
                     }
                 }
                 char == ',' && !inQuotes -> {
-                    fields.add(buffer.toString())
+                    fields.add(buffer.toString().trim())
                     buffer.clear()
                 }
                 else -> {
@@ -83,7 +84,7 @@ class CsvFileViewModel(
             }
             i++
         }
-        fields.add(buffer.toString())
+        fields.add(buffer.toString().trim()) // Add the last field
         return fields
     }
 
@@ -96,82 +97,83 @@ class CsvFileViewModel(
             Log.i(TAG, "Current Filename for error messages: $initialFileName")
 
             val context = getApplication<Application>()
-            var pfd: ParcelFileDescriptor? = null // Keep it nullable here
-
+            var pfd: ParcelFileDescriptor? = null
             try {
-                // Open PFD outside the withContext(Dispatchers.IO) or ensure it's final within.
-                // For simplicity, opening it and then passing to IO block if not null.
-                Log.d(TAG, "Attempting context.contentResolver.openFileDescriptor for URI: $initialFileUri")
-                pfd = context.contentResolver.openFileDescriptor(initialFileUri, "r")
-
-                if (pfd == null) {
-                    Log.e(TAG, "ParcelFileDescriptor is NULL for URI: $initialFileUri")
-                    _error.value = "Failed to open file descriptor for $initialFileName (PFD was null)."
-                    _isLoading.value = false // Ensure loading state is updated
-                    return@launch // Exit if PFD is null
-                }
-
-                // Now that pfd is confirmed non-null, use it in the IO context
                 withContext(Dispatchers.IO) {
-                    pfd?.let { parcelFileDescriptor -> // Use ?.let for safety, though checked above
-                        Log.i(TAG, "SUCCESSFULLY opened ParcelFileDescriptor for URI: $initialFileUri. Size: ${parcelFileDescriptor.statSize}")
-                        FileInputStream(parcelFileDescriptor.fileDescriptor).use { fis -> // Now pfd is non-null
+                    // SAF Fix: Use DocumentFile to resolve and open the file URI
+                    val docFile = DocumentFile.fromSingleUri(context, initialFileUri)
+                        ?: DocumentFile.fromTreeUri(context, initialFileUri)
+                    if (docFile == null || !docFile.canRead()) {
+                        Log.e(TAG, "DocumentFile is null or not readable for URI: $initialFileUri")
+                        withContext(Dispatchers.Main) {
+                            _error.value = "Cannot access file: $initialFileName (DocumentFile null or not readable)"
+                        }
+                        return@withContext
+                    }
+                    pfd = context.contentResolver.openFileDescriptor(docFile.uri, "r")
+                    if (pfd == null) {
+                        Log.e(TAG, "ParcelFileDescriptor is NULL for URI: ${docFile.uri}")
+                        withContext(Dispatchers.Main) {
+                            _error.value = "Failed to open file descriptor for $initialFileName (PFD was null)."
+                        }
+                    } else {
+                        val safePfd = pfd
+                        Log.i(TAG, "SUCCESSFULLY opened ParcelFileDescriptor for URI: ${docFile.uri}. Size: ${safePfd!!.statSize}")
+                        FileInputStream(safePfd.fileDescriptor).use { fis ->
                             BufferedReader(InputStreamReader(fis)).use { reader ->
                                 val allRows = mutableListOf<List<String>>()
                                 var line: String?
                                 var firstLine = true
+                                var maxCols = 0
 
                                 while (reader.readLine().also { line = it } != null) {
-                                    if (line.isNullOrBlank() && allRows.isEmpty()) continue
+                                    if (line.isNullOrBlank() && reader.ready().not()) continue // Skip blank lines unless it's the only line
                                     val parsedFields = parseCsvLine(line!!)
-                                    if (firstLine) {
-                                        withContext(Dispatchers.Main) { _headers.value = parsedFields }
-                                        firstLine = false
-                                    } else {
+                                    if (parsedFields.isNotEmpty()) {
+                                        if (firstLine) {
+                                            withContext(Dispatchers.Main) { _headers.value = parsedFields }
+                                            firstLine = false
+                                        }
                                         allRows.add(parsedFields)
+                                        if (parsedFields.size > maxCols) {
+                                            maxCols = parsedFields.size
+                                        }
                                     }
                                 }
 
                                 withContext(Dispatchers.Main) {
-                                    _previewData.value = allRows.take(PREVIEW_ROW_LIMIT)
-                                    _rowCount.value = allRows.size + if (_headers.value.isNotEmpty()) 1 else 0
-                                    _columnCount.value = _headers.value.size
-                                    if (_headers.value.isEmpty() && allRows.isNotEmpty() && allRows.first().isNotEmpty()) {
-                                        _headers.value = List(allRows.first().size) { index -> "Column ${index + 1}" }
-                                        _columnCount.value = _headers.value.size
+                                    if (_headers.value.isNotEmpty()) {
+                                        _previewData.value = allRows.drop(1).take(PREVIEW_ROW_LIMIT)
                                         _rowCount.value = allRows.size
+                                        _columnCount.value = _headers.value.size
+                                    } else if (allRows.isNotEmpty()) {
+                                        _previewData.value = allRows.take(PREVIEW_ROW_LIMIT)
+                                        _rowCount.value = allRows.size
+                                        _columnCount.value = maxCols
+                                        _headers.value = List(maxCols) { index -> "Col ${index + 1}" }
+                                    } else {
+                                        _rowCount.value = 0
+                                        _columnCount.value = 0
                                     }
                                 }
-                                Log.i(TAG, "CSV content loaded successfully. Headers: ${_headers.value.size}, Rows (data): ${allRows.size}")
+                                Log.i(TAG, "CSV content loaded. Rows: ${allRows.size}, MaxCols: $maxCols")
                             }
-                        }
-                    } ?: run {
-                        // This block should ideally not be reached if pfd null check above is done.
-                        // But as a fallback:
-                        Log.e(TAG, "PFD was null inside withContext(Dispatchers.IO) despite prior check. URI: $initialFileUri")
-                        withContext(Dispatchers.Main) {
-                            _error.value = "File descriptor became null unexpectedly for $initialFileName."
                         }
                     }
                 }
             } catch (e: SecurityException) {
                 Log.e(TAG, "SecurityException in loadCsvFile for $initialFileUri: ${e.message}", e)
-                _error.value = "Permission Denied: $initialFileName. Please re-select the folder. (Details: ${e.message?.take(100)})"
+                _error.value = "Permission Denied: $initialFileName. (Details: ${e.message})"
             } catch (e: Exception) {
                 Log.e(TAG, "Generic Exception in loadCsvFile for $initialFileUri: ${e.message}", e)
                 _error.value = "Error loading $initialFileName: ${e.localizedMessage}"
             } finally {
                 try {
-                    pfd?.close() // Close PFD if it was opened
+                    pfd?.close()
                 } catch (e: Exception) {
                     Log.e(TAG, "Error closing PFD: ${e.message}", e)
                 }
-                // Ensure isLoading is set on the Main thread if it hasn't been set by an early return/error
-                if (_isLoading.value) {
-                    withContext(Dispatchers.Main) { // Switch to main thread to update UI state
-                        _isLoading.value = false
-                    }
-                }
+                _isLoading.value = false
                 Log.i(TAG, "--- loadCsvFile finished --- Error: ${_error.value}")
             }
         }
@@ -182,16 +184,3 @@ class CsvFileViewModel(
     }
 }
 
-class CsvFileViewModelFactory(
-    private val application: Application,
-    private val initialFileUri: Uri,
-    private val initialFileName: String
-) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(CsvFileViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return CsvFileViewModel(application, initialFileUri, initialFileName) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
-    }
-}

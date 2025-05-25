@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// DirectoryEntry sealed class should be the same as your current working one
 sealed class DirectoryEntry {
     abstract val id: String
     abstract val name: String
@@ -47,7 +46,6 @@ sealed class DirectoryEntry {
         override val isDirectory: Boolean = true
     }
 }
-
 
 class LocalFileManagerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -194,8 +192,8 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         Log.i(TAG, "Clearing persisted root tree URI.")
         _rootTreeUri.value?.let {
             try {
-                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                contentResolver.releasePersistableUriPermission(it, takeFlags)
+                val takeFlagsClear: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                contentResolver.releasePersistableUriPermission(it, takeFlagsClear) // Corrected flags variable name
                 Log.i(TAG, "Released persisted permissions for $it")
             } catch (e: SecurityException) {
                 Log.e(TAG, "SecurityException releasing permissions for $it", e)
@@ -212,30 +210,39 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             return
         }
         try {
-            // Permission should have been taken by MainActivity.
-            // We just verify and use it.
-            val persistedPermissions = contentResolver.persistedUriPermissions
-            if (!persistedPermissions.any { it.uri == uri && it.isReadPermission }) {
-                Log.e(TAG, "setRootTreeUri: Permission for $uri was NOT persisted by MainActivity. Attempting to take it now (fallback).")
-                // Fallback: Attempt to take permission. This is ideally done by the Activity.
-                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                contentResolver.takePersistableUriPermission(uri, takeFlags)
-                // Re-check after attempt
-                if (!contentResolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }) {
-                    Log.e(TAG, "setRootTreeUri: Fallback permission take FAILED for $uri.")
-                    // Handle failure: clear URI, show error, etc.
-                    _rootTreeUri.value = null
-                    _currentPathSegmentsList.value = emptyList()
-                    return
-                }
-                Log.i(TAG, "setRootTreeUri: Fallback permission take SUCCEEDED for $uri.")
-            } else {
-                Log.i(TAG, "setRootTreeUri: Confirmed persisted permission for $uri.")
-            }
+            // Permissions should primarily be taken in MainActivity after user selection.
+            // This is a fallback or re-check.
+            val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            // Check if already persisted. If not, this call might fail if not from the original picker.
+            // For safety, we rely on MainActivity having done this robustly.
+            // contentResolver.takePersistableUriPermission(uri, takeFlags)
+            // Log.i(TAG, "Attempted to ensure persistable permissions for $uri in setRootTreeUri")
 
 
             val rootDocFile = DocumentFile.fromTreeUri(getApplication(), uri)
             if (rootDocFile != null && rootDocFile.isDirectory && rootDocFile.canRead()) {
+                // Verify again if we truly hold permission
+                val persistedPermissions = contentResolver.persistedUriPermissions
+                if (persistedPermissions.none { it.uri == uri && it.isReadPermission }) {
+                    Log.e(TAG, "setRootTreeUri: Permission for $uri was NOT found in persisted list, even after trying to take. This is unexpected if MainActivity succeeded.")
+                    // Attempt to take it again, though this might be problematic outside original callback
+                    try {
+                        contentResolver.takePersistableUriPermission(uri, takeFlags)
+                        Log.i(TAG, "Re-attempted takePersistableUriPermission for $uri in setRootTreeUri.")
+                        if (contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }) {
+                            Log.e(TAG, "Still no permission after re-attempt. Aborting setRootTreeUri.")
+                            _rootTreeUri.value = null
+                            _currentPathSegmentsList.value = emptyList()
+                            return
+                        }
+                    } catch (se: SecurityException) {
+                        Log.e(TAG, "SecurityException on re-attempting takePersistableUriPermission for $uri. Aborting.", se)
+                        _rootTreeUri.value = null
+                        _currentPathSegmentsList.value = emptyList()
+                        return
+                    }
+                }
+
                 _rootTreeUri.value = uri
                 _currentPathSegmentsList.value = listOf(PathSegment(uri, rootDocFile.name ?: "Selected Folder"))
                 sharedPreferences.edit { putString(KEY_ROOT_TREE_URI, uri.toString()) }
@@ -244,17 +251,18 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                 Log.e(TAG, "Provided URI $uri is not a valid directory tree or not readable.")
                 _rootTreeUri.value = null
                 _currentPathSegmentsList.value = emptyList()
-                // No need to release here if it wasn't properly set or used
             }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "SecurityException in setRootTreeUri for: $uri", e)
+        } catch (e: Exception) { // Broader catch for unexpected issues during DocumentFile access
+            Log.e(TAG, "Exception in setRootTreeUri for: $uri", e)
             _rootTreeUri.value = null
             _currentPathSegmentsList.value = emptyList()
         }
     }
 
+
     fun navigateTo(folderEntry: DirectoryEntry.FolderEntry) {
         Log.d(TAG, "Navigating to folder: ${folderEntry.name}, URI: ${folderEntry.uri}")
+        // For children of a tree URI, fromTreeUri should work.
         val folderDocFile = DocumentFile.fromTreeUri(getApplication(), folderEntry.uri)
         if (folderDocFile != null && folderDocFile.isDirectory && folderDocFile.canRead()) {
             _currentPathSegmentsList.value = _currentPathSegmentsList.value + PathSegment(folderEntry.uri, folderEntry.name)
@@ -289,32 +297,27 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         val targetName = fileEntry.name
         Log.i(TAG, "Preparing analysis for: $targetName, URI: $targetUri, Mime: ${fileEntry.mimeType}")
 
-        // --- DEBUGGING STEP (from previous attempts, good to keep) ---
+        // --- DEBUGGING STEP to ensure LFMViewModel itself can open it ---
         var canOpenFileInLFM = false
         try {
             val context = getApplication<Application>()
-            Log.d(TAG, "Attempting to open PFD for $targetUri in LFMViewModel for read test.")
+            Log.d(TAG, "LFM Read Test: Attempting to open PFD for $targetUri")
             context.contentResolver.openFileDescriptor(targetUri, "r")?.use { pfd ->
-                Log.i(TAG, "LFM DEBUG: Successfully opened PFD for $targetUri. Size: ${pfd.statSize}. File is readable here.")
+                Log.i(TAG, "LFM Read Test: Successfully opened PFD for $targetUri. Size: ${pfd.statSize}. File is readable here.")
                 canOpenFileInLFM = true
-                // pfd.close() // .use will close it
             } ?: run {
-                Log.e(TAG, "LFM DEBUG: PFD was null for $targetUri during read test.")
+                Log.e(TAG, "LFM Read Test: PFD was null for $targetUri.")
             }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "LFM DEBUG: SecurityException opening PFD for $targetUri: ${e.message}", e)
-            updateFileProcessingStatus(targetUri, ProcessingStatus.ERROR, "LFM Permission: ${e.message?.take(50)}")
-            return
-        } catch (e: Exception) {
-            Log.e(TAG, "LFM DEBUG: Exception opening PFD for $targetUri: ${e.message}", e)
-            updateFileProcessingStatus(targetUri, ProcessingStatus.ERROR, "LFM File Error: ${e.message?.take(50)}")
-            return
+        } catch (e: Exception) { // Catch generic Exception for broader logging
+            Log.e(TAG, "LFM Read Test: Exception opening PFD for $targetUri: ${e.message}", e)
+            updateFileProcessingStatus(targetUri, ProcessingStatus.ERROR, "LFM Permission/File Error: ${e.message?.take(50)}")
+            return // Stop if LFM can't even open it
         }
 
         if (!canOpenFileInLFM) {
-            Log.e(TAG, "LFM DEBUG: Failed read test for $targetUri. Not proceeding to analysis.")
+            Log.e(TAG, "LFM Read Test: Failed for $targetUri. Not proceeding to analysis.")
             if (fileProcessingStatusMap.value[targetUri]?.first != ProcessingStatus.ERROR) {
-                updateFileProcessingStatus(targetUri, ProcessingStatus.ERROR, "LFM: Open failed.")
+                updateFileProcessingStatus(targetUri, ProcessingStatus.ERROR, "LFM: Open failed (PFD null/other).")
             }
             return
         }
@@ -326,7 +329,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                 updateFileProcessingStatus(targetUri, ProcessingStatus.SUCCESS, "Ready for TXT analysis")
                 _navigateToAnalysisTarget.value = fileEntry
             }
-            "text/csv", "text/comma-separated-values", "application/csv" -> { // Added "application/csv"
+            "text/csv", "text/comma-separated-values", "application/csv" -> { // Added application/csv
                 updateFileProcessingStatus(targetUri, ProcessingStatus.SUCCESS, "Ready for CSV analysis")
                 _navigateToAnalysisTarget.value = fileEntry
             }

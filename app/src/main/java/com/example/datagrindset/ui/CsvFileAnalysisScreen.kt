@@ -2,10 +2,11 @@ package com.example.datagrindset.ui
 
 import android.app.Application
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,17 +24,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import com.example.datagrindset.viewmodel.CsvFileViewModel
+import com.example.datagrindset.viewmodel.CsvFileViewModelFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CsvFileAnalysisScreen(
     navController: NavController,
-    fileUri: Uri, // Kept for reference, ViewModel is primary data source
-    viewModel: CsvFileViewModel
+    fileUri: Uri, // Kept for reference, ViewModel is primary source
+    viewModel: CsvFileViewModel // Passed in
 ) {
     val fileName by viewModel.fileName.collectAsState()
     val rowCount by viewModel.rowCount.collectAsState()
@@ -51,7 +54,7 @@ fun CsvFileAnalysisScreen(
                 message = it,
                 duration = SnackbarDuration.Long
             )
-            viewModel.clearError() // Clear error after showing
+            viewModel.clearError() // Optional: clear error after showing
         }
     }
 
@@ -65,6 +68,7 @@ fun CsvFileAnalysisScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
+                // Add actions here if needed (e.g., refresh, share)
             )
         }
     ) { innerPadding ->
@@ -78,79 +82,62 @@ fun CsvFileAnalysisScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-            } else if (error != null && headers.isEmpty() && previewData.isEmpty()) {
+            } else if (error != null && headers.isEmpty() && previewData.isEmpty()) { // Show error prominently if loading failed
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        text = "Error loading file: $error",
+                        "Error: $error",
                         color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(16.dp)
                     )
                 }
             } else {
-                Text("CSV Analysis", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(bottom = 16.dp))
-                InfoRow(label = "File Name:", value = fileName)
-                InfoRow(label = "Total Rows (incl. header if parsed):", value = rowCount.toString())
-                InfoRow(label = "Number of Columns (based on header):", value = columnCount.toString())
+                // File Info Section
+                Text("File Information", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+                InfoRow(label = "Name:", value = fileName)
+                InfoRow(label = "Total Rows (incl. header if present):", value = rowCount.toString())
+                InfoRow(label = "Columns:", value = columnCount.toString())
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                if (headers.isNotEmpty()) {
-                    Text("Headers", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
-                    Surface( // Corrected: Wrap Row in Surface
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        tonalElevation = 1.dp, // Apply elevation to Surface
-                        shape = MaterialTheme.shapes.small // Optional: apply shape
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                        ) {
-                            headers.forEach { header ->
-                                TableCell(text = header, isHeader = true)
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-                } else if (!isLoading){
-                    Text("No headers found or could not be parsed.", style = MaterialTheme.typography.bodyMedium)
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                if (previewData.isNotEmpty()) {
-                    Text("Data Preview (First ${previewData.size} data rows)", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(previewData) { rowData ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                            ) {
-                                val cellsToDisplay = if (headers.isNotEmpty()) rowData.take(headers.size) else rowData
-                                cellsToDisplay.forEach { cellData ->
-                                    TableCell(text = cellData)
+                // Data Table Section
+                if (headers.isNotEmpty() || previewData.isNotEmpty()) {
+                    Text("Data Preview", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+                    Box(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                            if (headers.isNotEmpty()) {
+                                item {
+                                    Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
+                                        headers.forEach { header ->
+                                            TableCell(text = header, isHeader = true)
+                                        }
+                                    }
+                                    HorizontalDivider()
                                 }
-                                if (headers.isNotEmpty() && rowData.size < headers.size) {
-                                    repeat(headers.size - rowData.size) {
-                                        TableCell(text = "")
+                            }
+                            itemsIndexed(previewData) { index, rowData ->
+                                Row {
+                                    // Ensure rowData matches header size or pad if necessary
+                                    val displayRow = rowData.take(headers.size).toMutableList()
+                                    while (displayRow.size < headers.size) {
+                                        displayRow.add("") // Pad with empty strings if row is shorter
+                                    }
+                                    displayRow.forEach { cellData ->
+                                        TableCell(text = cellData)
                                     }
                                 }
+                                if (index < previewData.size - 1) {
+                                    HorizontalDivider()
+                                }
                             }
-                            HorizontalDivider()
                         }
                     }
-                } else if (headers.isNotEmpty() && !isLoading) {
-                    Text("No data rows found in the preview.", style = MaterialTheme.typography.bodyMedium)
-                } else if (!isLoading && headers.isEmpty()) {
-                    Text("No data to display. The file might be empty or incorrectly formatted.", style = MaterialTheme.typography.bodyMedium)
-                }
-                if (error != null && (headers.isNotEmpty() || previewData.isNotEmpty())) {
-                    Text("Note: $error", color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top=8.dp))
+                } else if (!isLoading) { // Only show if not loading and no data/headers
+                    Text(
+                        "No data or headers to display. The file might be empty or not a valid CSV.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
                 }
             }
         }
@@ -165,24 +152,25 @@ fun InfoRow(label: String, value: String) {
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.4f))
+        Text(text = label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(0.4f))
         Text(text = value, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-fun TableCell(text: String, isHeader: Boolean = false) {
+fun TableCell(text: String, isHeader: Boolean = false, modifier: Modifier = Modifier) {
     Text(
         text = text,
         style = if (isHeader) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
         fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
-        modifier = Modifier
-            .defaultMinSize(minWidth = 100.dp)
+        modifier = modifier
+            .defaultMinSize(minWidth = 100.dp) // Give cells a minimum width
             .padding(horizontal = 8.dp, vertical = 12.dp),
-        maxLines = 1,
+        maxLines = 1, // Prevent text wrapping for simplicity in table view
         overflow = TextOverflow.Ellipsis
     )
 }
+
 
 @Preview(showBackground = true)
 @Composable

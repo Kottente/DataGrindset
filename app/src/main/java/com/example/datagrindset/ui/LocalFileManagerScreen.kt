@@ -1,275 +1,490 @@
+// In ui/LocalFileManagerScreen.kt
 package com.example.datagrindset.ui
 
-import android.app.Application
 import android.net.Uri
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.*
+import android.util.Log
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.automirrored.filled.NoteAdd
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.CheckCircle // For success
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description // Default for TXT
-import androidx.compose.material.icons.filled.Error // For error
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.InsertDriveFile // Default file icon
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NoteAdd // For unsupported
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Refresh // For pending
-import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material.icons.filled.TableView // For CSV
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
 import com.example.datagrindset.ProcessingStatus
+import com.example.datagrindset.ui.navigation.Screen
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import com.example.datagrindset.viewmodel.DirectoryEntry
-import com.example.datagrindset.viewmodel.LocalFileManagerViewModel
-// import com.example.datagrindset.ui.SortOption // No longer needed here if SortOption is in its own file in this package
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
-// SortOption is now in its own file: ui/SortOption.kt
+// Assuming SortOption enum is defined elsewhere and imported, e.g.:
+// package com.example.datagrindset.ui
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalFileManagerScreen(
-    navController: NavController,
-    viewModel: LocalFileManagerViewModel,
-    onSelectRootDirectoryClicked: () -> Unit
+    rootUriSelected: Boolean,
+    canNavigateUp: Boolean,
+    currentPath: String,
+    entries: List<DirectoryEntry>,
+    fileProcessingStatusMap: Map<Uri, Pair<ProcessingStatus, String?>>,
+    searchText: String,
+    onSearchTextChanged: (String) -> Unit,
+    currentSortOption: SortOption,
+    onSortOptionSelected: (SortOption) -> Unit,
+    onSelectRootDirectoryClicked: () -> Unit, // Used for initial selection AND changing root
+    onNavigateToFolder: (DirectoryEntry.FolderEntry) -> Unit,
+    onNavigateUp: () -> Unit,
+    navigateToAnalysisTarget: DirectoryEntry.FileEntry?, // From ViewModel to trigger navigation
+    onDidNavigateToAnalysisScreen: () -> Unit,          // Callback to ViewModel after navigation
+    onPrepareFileForAnalysis: (DirectoryEntry.FileEntry) -> Unit, // Renamed from onProcessFile
+    onDeleteEntry: (DirectoryEntry) -> Unit,
+    navController: NavController
+    // navController: NavController, // Example: Pass NavController for actual navigation
 ) {
-    val rootTreeUriFromVM by viewModel.rootTreeUri.collectAsStateWithLifecycle()
-    val rootUriSelected = rootTreeUriFromVM != null
-    val canNavigateUp by viewModel.canNavigateUp.collectAsStateWithLifecycle()
-    val currentPath by viewModel.currentPathDisplay.collectAsStateWithLifecycle()
-    val entries by viewModel.directoryEntries.collectAsStateWithLifecycle()
-    val fileProcessingStatusMap by viewModel.fileProcessingStatusMap.collectAsStateWithLifecycle()
-    val searchText by viewModel.searchText.collectAsStateWithLifecycle()
-    val currentSortOption by viewModel.sortOption.collectAsStateWithLifecycle() // Uses SortOption
+    var showSearchField by remember { mutableStateOf(false) }
+    var showSortAndOptionsKebabMenu by remember { mutableStateOf(false) }
 
-    var showSortMenu by remember { mutableStateOf(false) }
-    var showDeleteConfirmDialog by remember { mutableStateOf<DirectoryEntry?>(null) }
+    // Effect to handle navigation when navigateToAnalysisTarget changes
+    LaunchedEffect(navigateToAnalysisTarget) {
+        navigateToAnalysisTarget?.let { fileEntry ->
+            val mimeType = fileEntry.mimeType?.lowercase()
+            // This is where you would typically use your NavController
+            val fileName = fileEntry.name.lowercase()
+            val uriString = fileEntry.uri.toString()
+            val isCsv = mimeType in listOf("text/csv", "application/csv", "text/comma-separated-values") ||
+                    fileName.endsWith(".csv")
+            val isTxt = mimeType in listOf("text/plain", "text/markdown") ||
+                    fileName.endsWith(".txt") || fileName.endsWith(".md")
+            val route = when {
+                isTxt -> "txtAnalysisScreen/${Uri.encode(uriString)}" // Encode the whole URI string once
+                //isCsv -> Screen.CsvFileAnalysisScreen.createRoute(fileEntry.uri, fileEntry.name)
+                isCsv -> "csvAnalysisScreen/${URLEncoder.encode(uriString.toString(), "UTF-8")}/${URLEncoder.encode(fileName, "UTF-8")}"
+                else -> null
+            }
+            route?.let {
+                navController.navigate(it) // Use the passed NavController
+            }
+            onDidNavigateToAnalysisScreen()
+
+            if (route != null) {
+                Log.d("LFM_Screen", "Navigating to route: $route")
+                navController.navigate(route)
+                onDidNavigateToAnalysisScreen() // Reset the signal in ViewModel
+            } else {
+                Log.w("LFM_Screen", "No route determined for MIME type: ${fileEntry.mimeType}")
+                // Optionally, clear the target if no route is found to prevent re-triggering
+                onDidNavigateToAnalysisScreen()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    if (rootUriSelected) {
-                        Text(currentPath, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (showSearchField) {
+                        OutlinedTextField(
+                            value = searchText,
+                            onValueChange = onSearchTextChanged,
+                            modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                            placeholder = { Text("Search in current folder...") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            )
+                        )
                     } else {
-                        Text("Select Root Folder")
+                        Text("DataGrindset Browser")
                     }
                 },
                 navigationIcon = {
-                    if (canNavigateUp) {
-                        IconButton(onClick = { viewModel.navigateUp() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Navigate Up")
+                    if (rootUriSelected && canNavigateUp) {
+                        IconButton(onClick = onNavigateUp) {
+                            Icon(Icons.Filled.ArrowUpward, contentDescription = "Navigate Up")
                         }
                     }
                 },
                 actions = {
                     if (rootUriSelected) {
-                        IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort Options")
+                        // Search Icon
+                        if (!showSearchField) {
+                            IconButton(onClick = { showSearchField = true }) {
+                                Icon(Icons.Filled.Search, contentDescription = "Search Files")
+                            }
+                        } else {
+                            IconButton(onClick = {
+                                showSearchField = false
+                                onSearchTextChanged("") // Clear search text when closing
+                            }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Close Search")
+                            }
                         }
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false }
-                        ) {
-                            SortOption.entries.forEach { sortOption -> // Uses SortOption
+                        // Kebab menu for Sort and other options
+                        Box {
+                            IconButton(onClick = { showSortAndOptionsKebabMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More Options")
+                            }
+                            DropdownMenu(
+                                expanded = showSortAndOptionsKebabMenu,
+                                onDismissRequest = { showSortAndOptionsKebabMenu = false }
+                            ) {
                                 DropdownMenuItem(
-                                    text = { Text(sortOption.displayName) },
+                                    text = { Text("Change Root Folder") },
                                     onClick = {
-                                        viewModel.onSortOptionSelected(sortOption)
-                                        showSortMenu = false
-                                    }
+                                        onSelectRootDirectoryClicked() // Re-use the same callback
+                                        showSortAndOptionsKebabMenu = false
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.FolderOpen, contentDescription = "Change Root Folder") }
                                 )
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                Text(
+                                    "Sort by",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                DropdownMenuItem(text = { Text("Name (A-Z)") }, onClick = { onSortOptionSelected(SortOption.BY_NAME_ASC); showSortAndOptionsKebabMenu = false })
+                                DropdownMenuItem(text = { Text("Name (Z-A)") }, onClick = { onSortOptionSelected(SortOption.BY_NAME_DESC); showSortAndOptionsKebabMenu = false })
+                                DropdownMenuItem(text = { Text("Date (Newest)") }, onClick = { onSortOptionSelected(SortOption.BY_DATE_DESC); showSortAndOptionsKebabMenu = false })
+                                DropdownMenuItem(text = { Text("Date (Oldest)") }, onClick = { onSortOptionSelected(SortOption.BY_DATE_ASC); showSortAndOptionsKebabMenu = false })
+                                DropdownMenuItem(text = { Text("Size (Largest)") }, onClick = { onSortOptionSelected(SortOption.BY_SIZE_DESC); showSortAndOptionsKebabMenu = false })
+                                DropdownMenuItem(text = { Text("Size (Smallest)") }, onClick = { onSortOptionSelected(SortOption.BY_SIZE_ASC); showSortAndOptionsKebabMenu = false })
                             }
                         }
                     }
                 }
             )
         }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
-        ) {
-            if (!rootUriSelected) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Button(onClick = onSelectRootDirectoryClicked) {
-                        Text("Select Root Storage Folder")
+    ) { innerPadding ->
+        Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+            if (rootUriSelected) {
+                Text(
+                    text = "Current: $currentPath",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (entries.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            if (searchText.isEmpty()) "This folder is empty." else "No items found matching '$searchText'.",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                    ) {
+                        items(entries, key = { entry -> entry.id }) { entry ->
+                            when (entry) {
+                                is DirectoryEntry.FileEntry -> {
+                                    val statusPair = fileProcessingStatusMap[entry.uri]
+                                    FileListItem(
+                                        fileEntry = entry,
+                                        processingStatus = statusPair?.first ?: ProcessingStatus.NONE,
+                                        processingSummary = statusPair?.second,
+                                        onProcess = { onPrepareFileForAnalysis(entry) },
+                                        onDelete = { onDeleteEntry(entry) }
+                                    )
+                                }
+                                is DirectoryEntry.FolderEntry -> FolderListItem(
+                                    folderEntry = entry,
+                                    onClick = { onNavigateToFolder(entry) },
+                                    onDelete = { onDeleteEntry(entry) }
+                                )
+                            }
+                        }
                     }
                 }
             } else {
-                OutlinedTextField(
-                    value = searchText,
-                    onValueChange = { viewModel.onSearchTextChanged(it) },
-                    label = { Text("Search files/folders") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp)
-                )
-                if (entries.isEmpty() && searchText.isBlank()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("This folder is empty.")
-                    }
-                } else if (entries.isEmpty() && searchText.isNotBlank()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No results found for \"$searchText\".")
-                    }
-                } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(entries, key = { it.id }) { entry ->
-                            DirectoryRow(
-                                entry = entry,
-                                statusPair = if (entry is DirectoryEntry.FileEntry) fileProcessingStatusMap[entry.uri] else null,
-                                onClick = {
-                                    if (entry.isDirectory) {
-                                        viewModel.navigateTo(entry as DirectoryEntry.FolderEntry)
-                                    } else {
-                                        viewModel.prepareFileForAnalysis(entry as DirectoryEntry.FileEntry)
-                                    }
-                                },
-                                onLongClick = {
-                                    showDeleteConfirmDialog = entry
-                                }
-                            )
-                            HorizontalDivider()
+                // Prompt to select a root directory
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Icon(
+                            imageVector = Icons.Filled.FolderOpen,
+                            contentDescription = "Select Folder Icon",
+                            modifier = Modifier.size(64.dp).padding(bottom = 16.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "Please select a root folder to browse.",
+                            style = MaterialTheme.typography.headlineSmall,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                        Button(onClick = onSelectRootDirectoryClicked) {
+                            Text("Select Root Folder")
                         }
                     }
                 }
             }
         }
     }
+}
 
-    if (showDeleteConfirmDialog != null) {
-        val entryToDelete = showDeleteConfirmDialog!!
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirmDialog = null },
-            title = { Text("Delete ${if (entryToDelete.isDirectory) "Folder" else "File"}") },
-            text = { Text("Are you sure you want to delete \"${entryToDelete.name}\"? This action cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.deleteEntry(entryToDelete)
-                        showDeleteConfirmDialog = null
-                    }
-                ) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirmDialog = null }) { Text("Cancel") }
+@Composable
+fun FolderListItem(
+    folderEntry: DirectoryEntry.FolderEntry,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp) // Removed horizontal padding from here, add to LazyColumn
+            .clickable(onClick = onClick),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Folder,
+                contentDescription = "Folder",
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.secondary
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(folderEntry.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${folderEntry.childCount} items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete Folder", tint = MaterialTheme.colorScheme.error)
+            }
+            Icon(Icons.Filled.ChevronRight, contentDescription = "Open folder", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+fun FileListItem(
+    fileEntry: DirectoryEntry.FileEntry,
+    processingStatus: ProcessingStatus,
+    processingSummary: String?,
+    onProcess: () -> Unit, // This is actually onPrepareFileForAnalysis
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp), // Removed horizontal padding
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = getIconForMimeType(fileEntry.mimeType),
+                contentDescription = "File type",
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(fileEntry.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)) {
+                    Text("Size: ${formatFileSize(fileEntry.size)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Modified: ${formatDate(fileEntry.dateModified)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (processingStatus != ProcessingStatus.NONE || processingSummary != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ProcessingStatusIndicator(processingStatus)
+                        processingSummary?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontStyle = FontStyle.Italic,
+                                modifier = Modifier.padding(start = 6.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(onClick = onProcess, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = "Analyze File", tint = MaterialTheme.colorScheme.tertiary)
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete File", tint = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+
+
+
+// --- Previews ---
+@Preview(showBackground = true, name = "File Manager - No Root Selected")
+@Composable
+fun LocalFileManagerScreenNoRootPreview() {
+    DataGrindsetTheme {
+        LocalFileManagerScreen(
+            rootUriSelected = false,
+            canNavigateUp = false,
+            currentPath = "No folder selected",
+            entries = emptyList(),
+            fileProcessingStatusMap = emptyMap(),
+            searchText = "",
+            onSearchTextChanged = {},
+            currentSortOption = SortOption.BY_NAME_ASC,
+            onSortOptionSelected = {},
+            onSelectRootDirectoryClicked = {},
+            onNavigateToFolder = {},
+            onNavigateUp = {},
+            navigateToAnalysisTarget = null,
+            onDidNavigateToAnalysisScreen = {},
+            onPrepareFileForAnalysis = {},
+            onDeleteEntry = {},
+            navController = rememberNavController()
         )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@Preview(showBackground = true, name = "File Manager - With Root & Items")
 @Composable
-fun DirectoryRow(
-    entry: DirectoryEntry,
-    statusPair: Pair<ProcessingStatus, String?>?,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
-    val icon = if (entry.isDirectory) {
-        Icons.Filled.Folder
-    } else if (entry is DirectoryEntry.FileEntry) {
-        entry.mimeTypeToIcon() // This should now work correctly
-    } else {
-        Icons.AutoMirrored.Filled.InsertDriveFile
-    }
-    val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()) }
-
-    ListItem(
-        headlineContent = { Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = {
-            Column {
-                val description = when (entry) {
-                    is DirectoryEntry.FileEntry -> "Size: ${entry.size.formatFileSizes()}, Modified: ${dateFormat.format(Date(entry.dateModified))}"
-                    is DirectoryEntry.FolderEntry -> "${entry.childCount} items"
-                }
-                Text(description, style = MaterialTheme.typography.bodySmall)
-                statusPair?.let { (status, message) ->
-                    val (statusIcon, statusColor, statusText) = when (status) {
-                        ProcessingStatus.PENDING -> Triple(Icons.Filled.Refresh, MaterialTheme.colorScheme.outline, "Pending: ${message ?: ""}")
-                        ProcessingStatus.SUCCESS -> Triple(Icons.Filled.CheckCircle, MaterialTheme.colorScheme.primary, "Ready: ${message ?: ""}")
-                        ProcessingStatus.ERROR -> Triple(Icons.Filled.Error, MaterialTheme.colorScheme.error, "Error: ${message ?: ""}")
-                        ProcessingStatus.UNSUPPORTED -> Triple(Icons.AutoMirrored.Filled.NoteAdd, MaterialTheme.colorScheme.secondary, "Unsupported: ${message ?: ""}")
-                        ProcessingStatus.NONE -> TODO()
-                        ProcessingStatus.PROCESSING -> TODO()
-                        ProcessingStatus.FAILED -> TODO()
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                        Icon(statusIcon, contentDescription = "Status", tint = statusColor, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(statusText, style = MaterialTheme.typography.labelSmall, color = statusColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        },
-        leadingContent = { Icon(icon, contentDescription = entry.name) },
-        trailingContent = {
-            IconButton(onClick = onLongClick) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete")
-            }
-        },
-        modifier = Modifier
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    )
-}
-
-fun DirectoryEntry.FileEntry.mimeTypeToIcon(): ImageVector {
-    return when (mimeType?.lowercase()) {
-        "text/plain", "text/markdown" -> Icons.Filled.Description
-        "text/csv", "application/csv", "text/comma-separated-values" -> Icons.Filled.TableView
-        "application/pdf" -> Icons.Filled.PictureAsPdf
-        "image/jpeg", "image/png", "image/gif", "image/webp" -> Icons.Filled.Image
-        "video/mp4", "video/webm" -> Icons.Filled.Videocam
-        "audio/mpeg", "audio/ogg", "audio/wav" -> Icons.Filled.Audiotrack
-        "application/zip", "application/rar" -> Icons.Filled.Archive
-        else -> Icons.AutoMirrored.Filled.InsertDriveFile
-    }
-}
-
-
-
-@Preview(showBackground = true)
-@Composable
-fun LocalFileManagerScreenPreview() {
+fun LocalFileManagerScreenWithRootPreview() {
     DataGrindsetTheme {
         val context = LocalContext.current
-        val previewViewModel = remember {
-            LocalFileManagerViewModel(context.applicationContext as Application)
-        }
+        val dummyFileUri1 = Uri.parse("content://com.example.dummyprovider/document/file1.csv")
+        val dummyFileUri2 = Uri.parse("content://com.example.dummyprovider/document/data.json")
+        val dummyFolderUri1 = Uri.parse("content://com.example.dummyprovider/tree/folder1/document/folder1")
+
+
+        val sampleEntries = listOf(
+            DirectoryEntry.FolderEntry("folder_id_1", "Work Documents", dummyFolderUri1, 3),
+            DirectoryEntry.FileEntry("file_id_1", "Report Q1 2025.csv", dummyFileUri1, 12345, System.currentTimeMillis() - 100000000, "text/csv"),
+            DirectoryEntry.FileEntry("file_id_2", "User Data Backup Long Name For Testing Ellipsis.json", dummyFileUri2, 6789000, System.currentTimeMillis() - 20000000, "application/json")
+        )
+        val sampleStatusMap = mapOf(
+            dummyFileUri1 to (ProcessingStatus.SUCCESS to "Ready"),
+            dummyFileUri2 to (ProcessingStatus.PENDING to "Queued for analysis")
+        )
         LocalFileManagerScreen(
-            navController = NavController(context),
-            viewModel = previewViewModel,
-            onSelectRootDirectoryClicked = {}
+            rootUriSelected = true,
+            canNavigateUp = true,
+            currentPath = "My Phone Storage > Documents > Reports",
+            entries = sampleEntries,
+            fileProcessingStatusMap = sampleStatusMap,
+            searchText = "",
+            onSearchTextChanged = {},
+            currentSortOption = SortOption.BY_DATE_DESC,
+            onSortOptionSelected = {},
+            onSelectRootDirectoryClicked = {},
+            onNavigateToFolder = {},
+            onNavigateUp = {},
+            navigateToAnalysisTarget = null,
+            onDidNavigateToAnalysisScreen = {},
+            onPrepareFileForAnalysis = {},
+            onDeleteEntry = {},
+            navController = rememberNavController()
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "File Manager - Empty Folder")
+@Composable
+fun LocalFileManagerScreenEmptyFolderPreview() {
+    DataGrindsetTheme {
+        LocalFileManagerScreen(
+            rootUriSelected = true,
+            canNavigateUp = true,
+            currentPath = "My Phone Storage > Empty Folder",
+            entries = emptyList(),
+            fileProcessingStatusMap = emptyMap(),
+            searchText = "",
+            onSearchTextChanged = {},
+            currentSortOption = SortOption.BY_NAME_ASC,
+            onSortOptionSelected = {},
+            onSelectRootDirectoryClicked = {},
+            onNavigateToFolder = {},
+            onNavigateUp = {},
+            navigateToAnalysisTarget = null,
+            onDidNavigateToAnalysisScreen = {},
+            onPrepareFileForAnalysis = {},
+            onDeleteEntry = {},
+            navController = rememberNavController()
         )
     }
 }
