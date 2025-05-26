@@ -1,5 +1,6 @@
 package com.example.datagrindset
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -8,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material.Text
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHost
@@ -31,6 +33,7 @@ import java.nio.charset.StandardCharsets
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import com.example.datagrindset.ui.SettingsScreen
 import com.example.datagrindset.viewmodel.CsvFileViewModel
 
 // import com.example.datagrindset.ui.CsvFileAnalysisScreen
@@ -61,6 +64,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,6 +85,7 @@ class MainActivity : ComponentActivity() {
                 val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
                 val navigateToAnalysisTarget by viewModel.navigateToAnalysisTarget.collectAsStateWithLifecycle()
 
+                val suggestExternalAppForFile by viewModel.suggestExternalAppForFile.collectAsState()
                 // Navigation Host for managing different screens
                 NavHost(navController = navController, startDestination = "fileManager") {
                     composable("fileManager") {
@@ -91,6 +98,7 @@ class MainActivity : ComponentActivity() {
                             searchText = searchText,
                             onSearchTextChanged = viewModel::onSearchTextChanged,
                             currentSortOption = sortOption,
+
                             onSortOptionSelected = viewModel::onSortOptionSelected,
                             onSelectRootDirectoryClicked = {
                                 openDirectoryLauncher.launch(null) // Initial URI can be null
@@ -100,8 +108,11 @@ class MainActivity : ComponentActivity() {
                             onPrepareFileForAnalysis = viewModel::prepareFileForAnalysis,
                             onDeleteEntry = viewModel::deleteEntry,
                             navigateToAnalysisTarget = navigateToAnalysisTarget,
+                            suggestExternalAppForFile = suggestExternalAppForFile, // Pass the new state
+                            onDidAttemptToOpenWithExternalApp = viewModel::didAttemptToOpenWithExternalApp,
                             onDidNavigateToAnalysisScreen = viewModel::didNavigateToAnalysisScreen,
                             navController = navController // Pass NavController for navigation actions
+
                         )
                     }
 
@@ -135,6 +146,25 @@ class MainActivity : ComponentActivity() {
                             factory = CsvFileViewModelFactory(application, fileUri, fileName)
                         )
                         CsvFileAnalysisScreen(navController, fileUri, csvViewModel)
+                    }
+                    composable("settings") {
+                        SettingsScreen(
+                            navController = navController,
+                            onLanguageSelected = { langCode ->
+                                LocaleHelper.persistUserChoice(this@MainActivity, langCode)
+                                // Restart the app
+                                val intent = packageManager.getLaunchIntentForPackage(packageName)
+                                intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                                if (intent != null) {
+                                    finishAffinity() // Finishes all activities in this task
+                                    startActivity(intent)
+                                } else {
+                                    // Fallback or error handling if launch intent is null
+                                    recreate() // Try recreate as a fallback
+                                }
+                            },
+                            currentLanguageCode = LocaleHelper.getLanguage(this@MainActivity)
+                        )
                     }
                     /*
                     composable("csvAnalysisScreen/{fileUri}") { backStackEntry ->

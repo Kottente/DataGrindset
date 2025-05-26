@@ -86,6 +86,9 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     private val _navigateToAnalysisTarget = MutableStateFlow<DirectoryEntry.FileEntry?>(null)
     val navigateToAnalysisTarget: StateFlow<DirectoryEntry.FileEntry?> = _navigateToAnalysisTarget.asStateFlow()
 
+    private val _suggestExternalAppForFile = MutableStateFlow<DirectoryEntry.FileEntry?>(null)
+    val suggestExternalAppForFile: StateFlow<DirectoryEntry.FileEntry?> = _suggestExternalAppForFile.asStateFlow()
+
     val directoryEntries: StateFlow<List<DirectoryEntry>> =
         combine(
             _currentPathSegmentsList,
@@ -204,60 +207,81 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         _currentPathSegmentsList.value = emptyList()
     }
 
-    fun setRootTreeUri(uri: Uri?) {
-        if (uri == null) {
-            clearRootTreeUriPersistence()
-            return
-        }
-        try {
-            // Permissions should primarily be taken in MainActivity after user selection.
-            // This is a fallback or re-check.
-            val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            // Check if already persisted. If not, this call might fail if not from the original picker.
-            // For safety, we rely on MainActivity having done this robustly.
-            // contentResolver.takePersistableUriPermission(uri, takeFlags)
-            // Log.i(TAG, "Attempted to ensure persistable permissions for $uri in setRootTreeUri")
-
-
-            val rootDocFile = DocumentFile.fromTreeUri(getApplication(), uri)
-            if (rootDocFile != null && rootDocFile.isDirectory && rootDocFile.canRead()) {
-                // Verify again if we truly hold permission
-                val persistedPermissions = contentResolver.persistedUriPermissions
-                if (persistedPermissions.none { it.uri == uri && it.isReadPermission }) {
-                    Log.e(TAG, "setRootTreeUri: Permission for $uri was NOT found in persisted list, even after trying to take. This is unexpected if MainActivity succeeded.")
-                    // Attempt to take it again, though this might be problematic outside original callback
-                    try {
-                        contentResolver.takePersistableUriPermission(uri, takeFlags)
-                        Log.i(TAG, "Re-attempted takePersistableUriPermission for $uri in setRootTreeUri.")
-                        if (contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }) {
-                            Log.e(TAG, "Still no permission after re-attempt. Aborting setRootTreeUri.")
-                            _rootTreeUri.value = null
-                            _currentPathSegmentsList.value = emptyList()
-                            return
-                        }
-                    } catch (se: SecurityException) {
-                        Log.e(TAG, "SecurityException on re-attempting takePersistableUriPermission for $uri. Aborting.", se)
-                        _rootTreeUri.value = null
-                        _currentPathSegmentsList.value = emptyList()
-                        return
-                    }
-                }
-
-                _rootTreeUri.value = uri
-                _currentPathSegmentsList.value = listOf(PathSegment(uri, rootDocFile.name ?: "Selected Folder"))
-                sharedPreferences.edit { putString(KEY_ROOT_TREE_URI, uri.toString()) }
-                Log.i(TAG, "Root tree URI set to: $uri, Name: ${rootDocFile.name}")
-            } else {
-                Log.e(TAG, "Provided URI $uri is not a valid directory tree or not readable.")
-                _rootTreeUri.value = null
-                _currentPathSegmentsList.value = emptyList()
-            }
-        } catch (e: Exception) { // Broader catch for unexpected issues during DocumentFile access
-            Log.e(TAG, "Exception in setRootTreeUri for: $uri", e)
+//    fun setRootTreeUri(uri: Uri?) {
+//        if (uri == null) {
+//            clearRootTreeUriPersistence()
+//            return
+//        }
+//        try {
+//            // Permissions should primarily be taken in MainActivity after user selection.
+//            // This is a fallback or re-check.
+//            val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+//            // Check if already persisted. If not, this call might fail if not from the original picker.
+//            // For safety, we rely on MainActivity having done this robustly.
+//            // contentResolver.takePersistableUriPermission(uri, takeFlags)
+//            // Log.i(TAG, "Attempted to ensure persistable permissions for $uri in setRootTreeUri")
+//
+//
+//            val rootDocFile = DocumentFile.fromTreeUri(getApplication(), uri)
+//            if (rootDocFile != null && rootDocFile.isDirectory && rootDocFile.canRead()) {
+//                // Verify again if we truly hold permission
+//                val persistedPermissions = contentResolver.persistedUriPermissions
+//                if (persistedPermissions.none { it.uri == uri && it.isReadPermission }) {
+//                    Log.e(TAG, "setRootTreeUri: Permission for $uri was NOT found in persisted list, even after trying to take. This is unexpected if MainActivity succeeded.")
+//                    // Attempt to take it again, though this might be problematic outside original callback
+//                    try {
+//                        contentResolver.takePersistableUriPermission(uri, takeFlags)
+//                        Log.i(TAG, "Re-attempted takePersistableUriPermission for $uri in setRootTreeUri.")
+//                        if (contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }) {
+//                            Log.e(TAG, "Still no permission after re-attempt. Aborting setRootTreeUri.")
+//                            _rootTreeUri.value = null
+//                            _currentPathSegmentsList.value = emptyList()
+//                            return
+//                        }
+//                    } catch (se: SecurityException) {
+//                        Log.e(TAG, "SecurityException on re-attempting takePersistableUriPermission for $uri. Aborting.", se)
+//                        _rootTreeUri.value = null
+//                        _currentPathSegmentsList.value = emptyList()
+//                        return
+//                    }
+//                }
+//
+//                _rootTreeUri.value = uri
+//                _currentPathSegmentsList.value = listOf(PathSegment(uri, rootDocFile.name ?: "Selected Folder"))
+//                sharedPreferences.edit { putString(KEY_ROOT_TREE_URI, uri.toString()) }
+//                Log.i(TAG, "Root tree URI set to: $uri, Name: ${rootDocFile.name}")
+//            } else {
+//                Log.e(TAG, "Provided URI $uri is not a valid directory tree or not readable.")
+//                _rootTreeUri.value = null
+//                _currentPathSegmentsList.value = emptyList()
+//            }
+//        } catch (e: Exception) { // Broader catch for unexpected issues during DocumentFile access
+//            Log.e(TAG, "Exception in setRootTreeUri for: $uri", e)
+//            _rootTreeUri.value = null
+//            _currentPathSegmentsList.value = emptyList()
+//        }
+//    }
+fun setRootTreeUri(uri: Uri) {
+    try {
+        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val rootDocFile = DocumentFile.fromTreeUri(getApplication(), uri)
+        if (rootDocFile != null && rootDocFile.isDirectory) {
+            _rootTreeUri.value = uri
+            _currentPathSegmentsList.value = listOf(PathSegment(uri, rootDocFile.name ?: "Selected Folder"))
+            sharedPreferences.edit { putString(KEY_ROOT_TREE_URI, uri.toString()) }
+        } else {
+            // Not a valid directory tree
             _rootTreeUri.value = null
             _currentPathSegmentsList.value = emptyList()
+            // Potentially show an error to the user
         }
+    } catch (e: SecurityException) {
+        println("SecurityException setting root tree URI: $e")
+        _rootTreeUri.value = null
+        _currentPathSegmentsList.value = emptyList()
+        // Potentially show an error to the user
     }
+}
 
 
     fun navigateTo(folderEntry: DirectoryEntry.FolderEntry) {
@@ -334,12 +358,15 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                 _navigateToAnalysisTarget.value = fileEntry
             }
             else -> {
-                Log.w(TAG, "Unsupported file type for analysis: $mimeType ($targetName)")
-                updateFileProcessingStatus(targetUri, ProcessingStatus.UNSUPPORTED, "File type '$mimeType' not supported.")
+                updateFileProcessingStatus(fileEntry.uri, ProcessingStatus.UNSUPPORTED, "File type not supported by this app. Try opening with another app.")
+                _suggestExternalAppForFile.value = fileEntry
             }
         }
     }
 
+    fun didAttemptToOpenWithExternalApp() {
+        _suggestExternalAppForFile.value = null
+    }
     fun didNavigateToAnalysisScreen() {
         _navigateToAnalysisTarget.value = null
     }

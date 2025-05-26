@@ -10,3 +10,13 @@ enum class SortOption(val displayName: String) {
     BY_SIZE_ASC("Size (Smallest)"),
     BY_SIZE_DESC("Size (Largest)")
 }
+enum class ProcessingStatus {
+    NONE,
+    PENDING,
+    PROCESSING,
+    SUCCESS,
+    FAILURE,
+    UNSUPPORTED,
+    ERROR,
+    FAILED
+}
