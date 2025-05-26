@@ -414,15 +414,3 @@ class TxtFileViewModel(application: Application, private var currentFileUri: Uri
     }
 }
 
-class TxtFileViewModelFactory(
-    private val application: Application,
-    private val initialFileUri: Uri
-) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(TxtFileViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return TxtFileViewModel(application, initialFileUri) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
-    }
-}

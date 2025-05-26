@@ -1,5 +1,6 @@
 package com.example.datagrindset
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -8,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material.Text
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHost
@@ -19,9 +21,20 @@ import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import com.example.datagrindset.viewmodel.LocalFileManagerViewModel
 import com.example.datagrindset.viewmodel.LocalFileManagerViewModelFactory
 // Import your analysis screens here when they are created, e.g.:
+import com.example.datagrindset.ui.CsvFileAnalysisScreen // Import new screen
+import com.example.datagrindset.viewmodel.CsvFileViewModelFactory // Import new factory
+
 import com.example.datagrindset.ui.TxtFileAnalysisScreen
 import androidx.core.net.toUri
+import androidx.media3.common.util.Log
 
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import com.example.datagrindset.ui.SettingsScreen
+import com.example.datagrindset.viewmodel.CsvFileViewModel
 
 // import com.example.datagrindset.ui.CsvFileAnalysisScreen
 
@@ -51,6 +64,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +85,7 @@ class MainActivity : ComponentActivity() {
                 val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
                 val navigateToAnalysisTarget by viewModel.navigateToAnalysisTarget.collectAsStateWithLifecycle()
 
+                val suggestExternalAppForFile by viewModel.suggestExternalAppForFile.collectAsState()
                 // Navigation Host for managing different screens
                 NavHost(navController = navController, startDestination = "fileManager") {
                     composable("fileManager") {
@@ -81,6 +98,7 @@ class MainActivity : ComponentActivity() {
                             searchText = searchText,
                             onSearchTextChanged = viewModel::onSearchTextChanged,
                             currentSortOption = sortOption,
+
                             onSortOptionSelected = viewModel::onSortOptionSelected,
                             onSelectRootDirectoryClicked = {
                                 openDirectoryLauncher.launch(null) // Initial URI can be null
@@ -90,8 +108,11 @@ class MainActivity : ComponentActivity() {
                             onPrepareFileForAnalysis = viewModel::prepareFileForAnalysis,
                             onDeleteEntry = viewModel::deleteEntry,
                             navigateToAnalysisTarget = navigateToAnalysisTarget,
+                            suggestExternalAppForFile = suggestExternalAppForFile, // Pass the new state
+                            onDidAttemptToOpenWithExternalApp = viewModel::didAttemptToOpenWithExternalApp,
                             onDidNavigateToAnalysisScreen = viewModel::didNavigateToAnalysisScreen,
                             navController = navController // Pass NavController for navigation actions
+
                         )
                     }
 
@@ -111,21 +132,62 @@ class MainActivity : ComponentActivity() {
                             Text("Error: TXT file URI not provided in navigation arguments.")
                         }
                     }
-
-                    // Example destination for CSV file analysis
+                    composable(
+                        "csvAnalysisScreen/{fileUri}/{fileName}",
+                        arguments = listOf(
+                            navArgument("fileUri") { type = NavType.StringType },
+                            navArgument("fileName") { type = NavType.StringType }
+                        )
+                    ) { backStackEntry ->
+                        val fileUriString = backStackEntry.arguments?.getString("fileUri") ?: return@composable
+                        val fileName = backStackEntry.arguments?.getString("fileName") ?: return@composable
+                        val fileUri = URLDecoder.decode(fileUriString, "UTF-8").toUri()
+                        val csvViewModel: CsvFileViewModel = viewModel(
+                            factory = CsvFileViewModelFactory(application, fileUri, fileName)
+                        )
+                        CsvFileAnalysisScreen(navController, fileUri, csvViewModel)
+                    }
+                    composable("settings") {
+                        SettingsScreen(
+                            navController = navController,
+                            onLanguageSelected = { langCode ->
+                                LocaleHelper.persistUserChoice(this@MainActivity, langCode)
+                                // Restart the app
+                                val intent = packageManager.getLaunchIntentForPackage(packageName)
+                                intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                                if (intent != null) {
+                                    finishAffinity() // Finishes all activities in this task
+                                    startActivity(intent)
+                                } else {
+                                    // Fallback or error handling if launch intent is null
+                                    recreate() // Try recreate as a fallback
+                                }
+                            },
+                            currentLanguageCode = LocaleHelper.getLanguage(this@MainActivity)
+                        )
+                    }
+                    /*
                     composable("csvAnalysisScreen/{fileUri}") { backStackEntry ->
+
+                        val encodedFileUriString = backStackEntry.arguments?.getString("fileUri")
+                        val encodedFileNameString = backStackEntry.arguments?.getString("fileName")
                         val fileUriString = backStackEntry.arguments?.getString("fileUri")
-                        if (fileUriString != null) {
-                            val decodedUri = Uri.decode(fileUriString).toUri()
-                            // Replace with your actual CsvFileAnalysisScreen composable
-                            // CsvFileAnalysisScreen(navController = navController, fileUri = decodedUri)
-                            // For now, a placeholder:
-                            // Text("Placeholder for CSV Analysis Screen. URI: $decodedUri")
+                        if (encodedFileUriString != null && encodedFileNameString != null) {
+                            val decodedUriString = URLDecoder.decode(encodedFileUriString, StandardCharsets.UTF_8.toString())
+                            val decodedFileNameString = URLDecoder.decode(encodedFileNameString, StandardCharsets.UTF_8.toString())
+                            val fileUri = decodedUriString.toUri()
+
+                            //Log.d("MainActivity/Nav", "Navigating to CSV: URI: $fileUri, Name: $decodedFileNameString")
+
+                            val csvViewModel: com.example.datagrindset.viewmodel.CsvFileViewModel = viewModel(
+                                factory = CsvFileViewModelFactory(application, fileUri, decodedFileNameString)
+                            )
+                            CsvFileAnalysisScreen(navController = navController, fileUri = fileUri, viewModel = csvViewModel)
                         } else {
-                            // Handle error: fileUri not provided
-                            // Text("Error: CSV file URI not provided.")
+                            Text("Error: CSV file URI or FileName not provided.")
                         }
                     }
+                     */
                     // Add more destinations for other analysis screens as needed
                     // composable("csvAnalysisScreen/{fileUri}") { /* ... */ }
                 }

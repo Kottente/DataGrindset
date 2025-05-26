@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -20,11 +21,10 @@ import java.io.InputStreamReader
 
 class CsvFileViewModel(
     application: Application,
-    private val initialFileUri: Uri, // Corrected: Matches factory
-    private val initialFileName: String // Corrected: Matches factory
+    private val initialFileUri: Uri,
+    private val initialFileName: String
 ) : AndroidViewModel(application) {
 
-    // Use initialFileName for the StateFlow
     private val _fileName = MutableStateFlow(initialFileName)
     val fileName: StateFlow<String> = _fileName.asStateFlow()
 
@@ -48,11 +48,13 @@ class CsvFileViewModel(
 
     companion object {
         private const val TAG = "CsvFileViewModel"
-        private const val PREVIEW_ROW_LIMIT = 10
+        private const val PREVIEW_ROW_LIMIT = 20
     }
 
     init {
-        Log.d(TAG, "Initializing for URI: $initialFileUri, FileName: $initialFileName")
+        Log.i(TAG, "--- CsvFileViewModel INIT ---")
+        Log.i(TAG, "Received URI: $initialFileUri (toString: ${initialFileUri.toString()})")
+        Log.i(TAG, "Received FileName: $initialFileName")
         loadCsvFile()
     }
 
@@ -73,7 +75,7 @@ class CsvFileViewModel(
                     }
                 }
                 char == ',' && !inQuotes -> {
-                    fields.add(buffer.toString())
+                    fields.add(buffer.toString().trim())
                     buffer.clear()
                 }
                 else -> {
@@ -82,81 +84,97 @@ class CsvFileViewModel(
             }
             i++
         }
-        fields.add(buffer.toString())
+        fields.add(buffer.toString().trim()) // Add the last field
         return fields
     }
 
     fun loadCsvFile() {
-        _isLoading.value = true
-        _error.value = null
         viewModelScope.launch {
-            // Use initialFileUri and initialFileName from constructor
-            Log.d(TAG, "Attempting to load CSV content for URI: $initialFileUri, Name: $initialFileName")
-            try {
-                val context = getApplication<Application>()
+            _isLoading.value = true
+            _error.value = null
+            Log.i(TAG, "--- loadCsvFile ---")
+            Log.i(TAG, "Using URI: $initialFileUri for loading.")
+            Log.i(TAG, "Current Filename for error messages: $initialFileName")
 
+            val context = getApplication<Application>()
+            var pfd: ParcelFileDescriptor? = null
+            try {
                 withContext(Dispatchers.IO) {
-                    val parcelFileDescriptor: ParcelFileDescriptor? = try {
-                        context.contentResolver.openFileDescriptor(initialFileUri, "r")
-                    } catch (e: SecurityException) {
-                        Log.e(TAG, "SecurityException opening PFD for CSV $initialFileUri", e)
-                        _error.value = "Permission denied to read CSV file: $initialFileName. Error: ${e.message}"
-                        withContext(Dispatchers.Main) { _isLoading.value = false }
-                        return@withContext
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Exception opening PFD for CSV $initialFileUri", e)
-                        _error.value = "Failed to open CSV file: $initialFileName (${e.localizedMessage})"
-                        withContext(Dispatchers.Main) { _isLoading.value = false }
+                    // SAF Fix: Use DocumentFile to resolve and open the file URI
+                    val docFile = DocumentFile.fromSingleUri(context, initialFileUri)
+                        ?: DocumentFile.fromTreeUri(context, initialFileUri)
+                    if (docFile == null || !docFile.canRead()) {
+                        Log.e(TAG, "DocumentFile is null or not readable for URI: $initialFileUri")
+                        withContext(Dispatchers.Main) {
+                            _error.value = "Cannot access file: $initialFileName (DocumentFile null or not readable)"
+                        }
                         return@withContext
                     }
-
-                    if (parcelFileDescriptor == null) {
-                        _error.value = "Failed to open file descriptor for CSV: $initialFileName."
+                    pfd = context.contentResolver.openFileDescriptor(docFile.uri, "r")
+                    if (pfd == null) {
+                        Log.e(TAG, "ParcelFileDescriptor is NULL for URI: ${docFile.uri}")
+                        withContext(Dispatchers.Main) {
+                            _error.value = "Failed to open file descriptor for $initialFileName (PFD was null)."
+                        }
                     } else {
-                        FileInputStream(parcelFileDescriptor.fileDescriptor).use { fis ->
+                        val safePfd = pfd
+                        Log.i(TAG, "SUCCESSFULLY opened ParcelFileDescriptor for URI: ${docFile.uri}. Size: ${safePfd!!.statSize}")
+                        FileInputStream(safePfd.fileDescriptor).use { fis ->
                             BufferedReader(InputStreamReader(fis)).use { reader ->
                                 val allRows = mutableListOf<List<String>>()
                                 var line: String?
                                 var firstLine = true
+                                var maxCols = 0
 
                                 while (reader.readLine().also { line = it } != null) {
-                                    if (line.isNullOrBlank()) continue
+                                    if (line.isNullOrBlank() && reader.ready().not()) continue // Skip blank lines unless it's the only line
                                     val parsedFields = parseCsvLine(line!!)
-                                    if (firstLine) {
-                                        _headers.value = parsedFields
-                                        firstLine = false
+                                    if (parsedFields.isNotEmpty()) {
+                                        if (firstLine) {
+                                            withContext(Dispatchers.Main) { _headers.value = parsedFields }
+                                            firstLine = false
+                                        }
+                                        allRows.add(parsedFields)
+                                        if (parsedFields.size > maxCols) {
+                                            maxCols = parsedFields.size
+                                        }
                                     }
-                                    allRows.add(parsedFields)
                                 }
 
-                                if (_headers.value.isNotEmpty()) {
-                                    _previewData.value = allRows.drop(1).take(PREVIEW_ROW_LIMIT)
-                                    _rowCount.value = allRows.size
-                                } else if (allRows.isNotEmpty()) {
-                                    _previewData.value = allRows.take(PREVIEW_ROW_LIMIT)
-                                    _rowCount.value = allRows.size
-                                    if (allRows.first().isNotEmpty()) {
-                                        _headers.value = List(allRows.first().size) { index -> "Column ${index + 1}" }
+                                withContext(Dispatchers.Main) {
+                                    if (_headers.value.isNotEmpty()) {
+                                        _previewData.value = allRows.drop(1).take(PREVIEW_ROW_LIMIT)
+                                        _rowCount.value = allRows.size
+                                        _columnCount.value = _headers.value.size
+                                    } else if (allRows.isNotEmpty()) {
+                                        _previewData.value = allRows.take(PREVIEW_ROW_LIMIT)
+                                        _rowCount.value = allRows.size
+                                        _columnCount.value = maxCols
+                                        _headers.value = List(maxCols) { index -> "Col ${index + 1}" }
+                                    } else {
+                                        _rowCount.value = 0
+                                        _columnCount.value = 0
                                     }
-                                } else {
-                                    _rowCount.value = 0
                                 }
-                                _columnCount.value = _headers.value.size
-                                Log.i(TAG, "CSV content loaded successfully for $initialFileUri")
+                                Log.i(TAG, "CSV content loaded. Rows: ${allRows.size}, MaxCols: $maxCols")
                             }
                         }
-                        parcelFileDescriptor.close()
                     }
                 }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException in loadCsvFile for $initialFileUri: ${e.message}", e)
+                _error.value = "Permission Denied: $initialFileName. (Details: ${e.message})"
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading CSV file $initialFileUri", e)
-                _error.value = "Error parsing CSV: ${e.localizedMessage}"
+                Log.e(TAG, "Generic Exception in loadCsvFile for $initialFileUri: ${e.message}", e)
+                _error.value = "Error loading $initialFileName: ${e.localizedMessage}"
             } finally {
-                if (_isLoading.value) {
-                    withContext(Dispatchers.Main) {
-                        _isLoading.value = false
-                    }
+                try {
+                    pfd?.close()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error closing PFD: ${e.message}", e)
                 }
+                _isLoading.value = false
+                Log.i(TAG, "--- loadCsvFile finished --- Error: ${_error.value}")
             }
         }
     }
@@ -166,16 +184,3 @@ class CsvFileViewModel(
     }
 }
 
-class CsvFileViewModelFactory(
-    private val application: Application,
-    private val initialFileUri: Uri, // Stays initialFileUri
-    private val initialFileName: String // Stays initialFileName
-) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(CsvFileViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return CsvFileViewModel(application, initialFileUri, initialFileName) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
-    }
-}

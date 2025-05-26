@@ -37,7 +37,7 @@ import androidx.navigation.NavController
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
 //import com.example.datagrindset.viewmodel.SummaryData // Keep this
 import com.example.datagrindset.viewmodel.TxtFileViewModel
-import com.example.datagrindset.viewmodel.TxtFileViewModelFactory
+import com.example.datagrindset.TxtFileViewModelFactory
 //import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
