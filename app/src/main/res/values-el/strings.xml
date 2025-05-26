@@ -43,7 +43,7 @@
     <string name="lfm_sort_name_asc">Όνομα (Α-Ω)</string>
     <string name="lfm_sort_name_desc">Όνομα (Ω-Α)</string>
     <string name="lfm_sort_date_asc">Ημερομηνία (παλαιότερα)</string>
-    <string name="lfm_sort_date_desc">Ημερομηнία (νεότερα)</string>
+    <string name="lfm_sort_date_desc">Ημερομηνία (νεότερα)</string>
     <string name="lfm_sort_size_asc">Μέγεθος (μικρότερο)</string>
     <string name="lfm_sort_size_desc">Μέγεθος (μεγαλύτερο)</string>
     <string name="lfm_delete_icon_desc">Διαγραφή</string>
@@ -56,6 +56,42 @@
     <string name="lfm_more_options_icon_desc">Περισσότερες επιλογές</string>
     <string name="lfm_settings_icon_desc">Ρυθμίσεις</string>
     <string name="lfm_processing_status_desc">Κατάσταση επεξεργασίας: %1$s</string>
+
+    <!-- Selection Mode Strings -->
+    <string name="lfm_selection_mode_cancel_desc">Ακύρωση επιλογής</string>
+    <string name="lfm_selection_mode_selected_count">Επιλεγμένα: %1$d</string>
+    <string name="lfm_selection_mode_select_all_desc">Επιλογή όλων</string>
+    <string name="lfm_selection_mode_deselect_all_desc">Αποεπιλογή όλων</string>
+    <string name="lfm_bottom_bar_share_desc">Κοινοποίηση</string>
+    <string name="lfm_bottom_bar_move_desc">Μετακίνηση</string>
+    <string name="lfm_bottom_bar_archive_desc">Αρχειοθέτηση</string>
+    <string name="lfm_bottom_bar_more_options_desc">Περισσότερες ενέργειες</string>
+    <string name="lfm_action_open_with_another_app">Άνοιγμα με...</string>
+    <string name="lfm_action_details">Λεπτομέρειες</string>
+    <string name="lfm_action_archive">Αρχειοθέτηση</string>
+    <string name="lfm_action_move_not_implemented">Η λειτουργία μετακίνησης δεν έχει υλοποιηθεί ακόμη.</string>
+    <string name="lfm_action_archive_not_implemented">Η λειτουργία αρχειοθέτησης δεν έχει υλοποιηθεί ακόμη.</string>
+    <string name="lfm_action_share_no_items">Δεν επιλέχθηκαν στοιχεία για κοινοποίηση.</string>
+    <string name="lfm_action_share_error">Δεν ήταν δυνατή η κοινοποίηση των στοιχείων.</string>
+    <string name="lfm_action_open_with_select_one_file">Παρακαλώ επιλέξτε ένα μόνο αρχείο για άνοιγμα.</string>
+    <string name="lfm_item_details_title">Λεπτομέρειες Στοιχείου</string>
+    <string name="lfm_item_details_name">Όνομα:</string>
+    <string name="lfm_item_details_path">Διαδρομή:</string>
+    <string name="lfm_item_details_type">Τύπος:</string>
+    <string name="lfm_item_details_size">Μέγεθος:</string>
+    <string name="lfm_item_details_modified">Τροποποιήθηκε:</string>
+    <string name="lfm_item_details_mime_type">Τύπος MIME:</string>
+    <string name="lfm_item_details_children">Περιέχει:</string>
+    <string name="lfm_item_details_readable">Αναγνώσιμο:</string>
+    <string name="lfm_item_details_writable">Εγγράψιμο:</string>
+    <string name="lfm_item_details_hidden">Κρυφό:</string>
+    <string name="lfm_item_details_yes">Ναι</string>
+    <string name="lfm_item_details_no">Όχι</string>
+    <string name="lfm_item_details_folder">Φάκελος</string>
+    <string name="lfm_item_details_file">Αρχείο</string>
+    <string name="lfm_item_details_items_count">%1$d στοιχεία</string>
+    <string name="lfm_item_details_no_details">Οι λεπτομέρειες δεν είναι διαθέσιμες για τα επιλεγμένα στοιχεία.</string>
+    <string name="lfm_item_details_select_one_item">Επιλέξτε ένα μόνο στοιχείο για προβολή λεπτομερειών.</string>
 
     <!-- Localized Processing Summaries -->
     <string name="processing_summary_ready_to_open_txt">Έτοιμο για ανάλυση TXT</string>

@@ -69,25 +69,21 @@ fun formatDate(timestamp: Long): String {
 
 @Composable
 fun ProcessingStatusIndicator(status: ProcessingStatus) {
-    val icon = when (status) {
-        ProcessingStatus.PENDING -> Icons.Filled.HourglassEmpty
-        ProcessingStatus.PROCESSING -> Icons.Filled.Sync // Or a CircularProgressIndicator
-        ProcessingStatus.SUCCESS -> Icons.Filled.CheckCircle
-        ProcessingStatus.FAILED, ProcessingStatus.UNSUPPORTED -> Icons.Filled.Error
-        ProcessingStatus.NONE -> return // Don't show an icon if no status
-        ProcessingStatus.ERROR -> return
+    val statusText = stringResource(R.string.lfm_processing_status_desc, status.name)
+    val iconVectorAndTint = when (status) {
+        ProcessingStatus.PENDING -> Icons.Filled.HourglassEmpty to MaterialTheme.colorScheme.onSurfaceVariant
+        ProcessingStatus.PROCESSING -> Icons.Filled.Sync to MaterialTheme.colorScheme.onSurfaceVariant
+        ProcessingStatus.SUCCESS -> Icons.Filled.CheckCircle to MaterialTheme.colorScheme.primary
+        ProcessingStatus.FAILURE -> Icons.Filled.Error to MaterialTheme.colorScheme.error
+        ProcessingStatus.UNSUPPORTED -> Icons.Filled.Error to MaterialTheme.colorScheme.error
+        ProcessingStatus.ERROR -> Icons.Filled.Error to MaterialTheme.colorScheme.error
+        ProcessingStatus.FAILED -> Icons.Filled.Error to MaterialTheme.colorScheme.error
+        ProcessingStatus.NONE -> null
     }
-    val tint = when (status) {
-        ProcessingStatus.SUCCESS -> MaterialTheme.colorScheme.primary
-        ProcessingStatus.FAILED, ProcessingStatus.UNSUPPORTED -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+
+    iconVectorAndTint?.let { (icon, tint) ->
+        Icon(imageVector = icon, contentDescription = statusText, tint = tint, modifier = Modifier.size(18.dp))
     }
-    Icon(
-        imageVector = icon,
-        contentDescription = stringResource(R.string.lfm_processing_status_desc, status.name),
-        tint = tint,
-        modifier = Modifier.size(18.dp)
-    )
 }
 //fun Long.formatFileSizes(): String {
 //    if (this < 0) return "N/A"
@@ -140,31 +136,32 @@ fun ProcessingStatusIndicator(status: ProcessingStatus) {
 //}
 
 // --- Processing Status Indicator Composable ---
-@Composable
-fun ProcessingStatusIndicator(statusPair: Pair<ProcessingStatus, String?>?) {
-    statusPair?.let { (status, message) ->
-        val (statusIcon, statusColor, statusText) = when (status) {
-            ProcessingStatus.PENDING -> Triple(Icons.Filled.Refresh, MaterialTheme.colorScheme.outline, "Pending: ${message ?: ""}")
-            ProcessingStatus.SUCCESS -> Triple(Icons.Filled.CheckCircle, MaterialTheme.colorScheme.primary, "Ready: ${message ?: ""}")
-            ProcessingStatus.ERROR -> Triple(Icons.Filled.Error, MaterialTheme.colorScheme.error, "Error: ${message ?: ""}")
-            ProcessingStatus.UNSUPPORTED -> Triple(Icons.AutoMirrored.Filled.NoteAdd, MaterialTheme.colorScheme.secondary, "Unsupported: ${message ?: ""}")
-            ProcessingStatus.NONE -> TODO()
-            ProcessingStatus.PROCESSING -> TODO()
-            ProcessingStatus.FAILED -> TODO()
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-            Icon(statusIcon, contentDescription = "Status", tint = statusColor, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                statusText,
-                style = MaterialTheme.typography.labelSmall,
-                color = statusColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
+//@Composable
+//fun ProcessingStatusIndicator(statusPair: Pair<ProcessingStatus, String?>?) {
+//    statusPair?.let { (status, message) ->
+//        val (statusIcon, statusColor, statusText) = when (status) {
+//            ProcessingStatus.PENDING -> Triple(Icons.Filled.Refresh, MaterialTheme.colorScheme.outline, "Pending: ${message ?: ""}")
+//            ProcessingStatus.SUCCESS -> Triple(Icons.Filled.CheckCircle, MaterialTheme.colorScheme.primary, "Ready: ${message ?: ""}")
+//            ProcessingStatus.ERROR -> Triple(Icons.Filled.Error, MaterialTheme.colorScheme.error, "Error: ${message ?: ""}")
+//            ProcessingStatus.UNSUPPORTED -> Triple(Icons.AutoMirrored.Filled.NoteAdd, MaterialTheme.colorScheme.secondary, "Unsupported: ${message ?: ""}")
+//            ProcessingStatus.NONE -> TODO()
+//            ProcessingStatus.PROCESSING -> TODO()
+//            ProcessingStatus.FAILED -> TODO()
+//            ProcessingStatus.FAILURE -> TODO()
+//        }
+//        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+//            Icon(statusIcon, contentDescription = "Status", tint = statusColor, modifier = Modifier.size(16.dp))
+//            Spacer(modifier = Modifier.width(4.dp))
+//            Text(
+//                statusText,
+//                style = MaterialTheme.typography.labelSmall,
+//                color = statusColor,
+//                maxLines = 1,
+//                overflow = TextOverflow.Ellipsis
+//            )
+//        }
+//    }
+//}
 
 //@Composable
 //fun ProcessingStatusIndicator(status: ProcessingStatus) {

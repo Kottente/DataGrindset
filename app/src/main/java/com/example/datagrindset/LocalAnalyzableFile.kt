@@ -6,13 +6,14 @@ import android.net.Uri // For storing the file's location
 
 // Enum to represent the processing status of a file
 enum class ProcessingStatus {
-    NONE,       // Default, no action taken
-    PENDING,    // Queued for processing or opening
-    PROCESSING, // Actively being processed or loaded
-    SUCCESS,    // Processing completed successfully, or file opened for analysis
-    FAILED,     // Processing failed, or error opening
+    NONE,
+    PENDING,
+    PROCESSING,
+    SUCCESS,
+    FAILURE,
     UNSUPPORTED,
-    ERROR
+    ERROR,
+    FAILED
 }
 
 // Data class to represent a file selected by the user from local storage

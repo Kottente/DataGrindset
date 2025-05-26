@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">DataGrindset</string>
 
-    <!-- Settings Screen (from previous steps) -->
+    <!-- Settings Screen (EXISTING) -->
     <string name="settings_screen_title">Settings</string>
     <string name="settings_back_button_desc">Back</string>
     <string name="settings_auth_section_title">Authentication</string>
@@ -14,11 +14,11 @@
     <string name="settings_theme_section_title">Theme</string>
     <string name="settings_current_theme_label">Current Theme</string>
     <string name="settings_select_theme_desc">Select Theme</string>
-    <string name="settings_theme_applied_toast">Theme \'%s\' applied (UI will update with full implementation)</string>
+    <string name="settings_theme_applied_toast">Theme \'%1$s\' applied (UI will update with full implementation)</string>
     <string name="settings_lang_section_title">Language</string>
     <string name="settings_current_lang_label">Current Language</string>
     <string name="settings_select_lang_desc">Select Language</string>
-    <string name="settings_lang_set_toast">Language \'%s\' set. The app will restart to apply changes.</string>
+    <string name="settings_lang_set_toast">Language \'%1$s\' set. The app will restart to apply changes.</string>
     <string name="settings_lang_english">English</string>
     <string name="settings_lang_russian">Russian</string>
     <string name="settings_lang_greek">Greek</string>
@@ -26,7 +26,7 @@
     <string name="settings_contact_support_button">Contact Support</string>
     <string name="settings_no_email_app_toast">No email app found.</string>
 
-    <!-- LocalFileManagerScreen Titles (from previous steps) -->
+    <!-- LocalFileManagerScreen Titles (EXISTING + NEW) -->
     <string name="lfm_title_default">DataGrindset</string>
     <string name="lfm_search_placeholder">Search in current folder...</string>
     <string name="lfm_unsupported_file_title">Unsupported File Type</string>
@@ -57,7 +57,44 @@
     <string name="lfm_settings_icon_desc">Settings</string>
     <string name="lfm_processing_status_desc">Processing Status: %1$s</string>
 
-    <!-- NEW: Localized Processing Summaries -->
+    <!-- NEW: Selection Mode Strings -->
+    <string name="lfm_selection_mode_cancel_desc">Cancel selection</string>
+    <string name="lfm_selection_mode_selected_count">Selected: %1$d</string>
+    <string name="lfm_selection_mode_select_all_desc">Select All</string>
+    <string name="lfm_selection_mode_deselect_all_desc">Deselect All</string>
+    <string name="lfm_bottom_bar_share_desc">Share</string>
+    <string name="lfm_bottom_bar_move_desc">Move</string>
+    <string name="lfm_bottom_bar_archive_desc">Archive</string>
+    <string name="lfm_bottom_bar_more_options_desc">More actions</string>
+    <string name="lfm_action_open_with_another_app">Open with...</string>
+    <string name="lfm_action_details">Details</string>
+    <string name="lfm_action_archive">Archive</string>
+    <string name="lfm_action_move_not_implemented">Move feature not yet implemented.</string>
+    <string name="lfm_action_archive_not_implemented">Archive feature not yet implemented.</string>
+    <string name="lfm_action_share_no_items">No items selected to share.</string>
+    <string name="lfm_action_share_error">Could not share items.</string>
+    <string name="lfm_action_open_with_select_one_file">Please select a single file to open.</string>
+    <string name="lfm_item_details_title">Item Details</string>
+    <string name="lfm_item_details_name">Name:</string>
+    <string name="lfm_item_details_path">Path:</string>
+    <string name="lfm_item_details_type">Type:</string>
+    <string name="lfm_item_details_size">Size:</string>
+    <string name="lfm_item_details_modified">Modified:</string>
+    <string name="lfm_item_details_mime_type">MIME Type:</string>
+    <string name="lfm_item_details_children">Contains:</string>
+    <string name="lfm_item_details_readable">Readable:</string>
+    <string name="lfm_item_details_writable">Writable:</string>
+    <string name="lfm_item_details_hidden">Hidden:</string>
+    <string name="lfm_item_details_yes">Yes</string>
+    <string name="lfm_item_details_no">No</string>
+    <string name="lfm_item_details_folder">Folder</string>
+    <string name="lfm_item_details_file">File</string>
+    <string name="lfm_item_details_items_count">%1$d items</string>
+    <string name="lfm_item_details_no_details">Details not available for selected items.</string>
+    <string name="lfm_item_details_select_one_item">Select a single item to view details.</string>
+
+
+    <!-- Localized Processing Summaries (EXISTING) -->
     <string name="processing_summary_ready_to_open_txt">Ready for TXT analysis</string>
     <string name="processing_summary_ready_to_open_csv">Ready for CSV analysis</string>
     <string name="processing_summary_unsupported_type">File type not supported. Try opening externally.</string>
@@ -66,7 +103,7 @@
     <string name="processing_summary_pending">Pending analysis...</string>
     <string name="processing_summary_failed">Analysis failed</string>
 
-    <!-- NEW: TxtFileAnalysisScreen -->
+    <!-- TxtFileAnalysisScreen (EXISTING) -->
     <string name="txt_analysis_title_edit">Edit: %1$s</string>
     <string name="txt_analysis_back_button_desc">Back</string>
     <string name="txt_analysis_close_search_desc">Close Search</string>
@@ -110,5 +147,4 @@
     <string name="txt_analysis_detailed_summary_occurrences">%1$d occurrences</string>
     <string name="txt_analysis_detailed_summary_none_found">No detailed summary available or no keywords found.</string>
     <string name="txt_analysis_save_error_snackbar">Save error: %1$s</string>
-
 </resources>

@@ -57,6 +57,42 @@
     <string name="lfm_settings_icon_desc">Настройки</string>
     <string name="lfm_processing_status_desc">Статус обработки: %1$s</string>
 
+    <!-- Selection Mode Strings -->
+    <string name="lfm_selection_mode_cancel_desc">Отменить выделение</string>
+    <string name="lfm_selection_mode_selected_count">Выбрано: %1$d</string>
+    <string name="lfm_selection_mode_select_all_desc">Выбрать все</string>
+    <string name="lfm_selection_mode_deselect_all_desc">Снять выделение со всех</string>
+    <string name="lfm_bottom_bar_share_desc">Поделиться</string>
+    <string name="lfm_bottom_bar_move_desc">Переместить</string>
+    <string name="lfm_bottom_bar_archive_desc">Архивировать</string>
+    <string name="lfm_bottom_bar_more_options_desc">Другие действия</string>
+    <string name="lfm_action_open_with_another_app">Открыть с помощью...</string>
+    <string name="lfm_action_details">Сведения</string>
+    <string name="lfm_action_archive">Архивировать</string>
+    <string name="lfm_action_move_not_implemented">Функция перемещения еще не реализована.</string>
+    <string name="lfm_action_archive_not_implemented">Функция архивации еще не реализована.</string>
+    <string name="lfm_action_share_no_items">Нет выбранных элементов для отправки.</string>
+    <string name="lfm_action_share_error">Не удалось поделиться элементами.</string>
+    <string name="lfm_action_open_with_select_one_file">Пожалуйста, выберите один файл для открытия.</string>
+    <string name="lfm_item_details_title">Сведения об элементе</string>
+    <string name="lfm_item_details_name">Имя:</string>
+    <string name="lfm_item_details_path">Путь:</string>
+    <string name="lfm_item_details_type">Тип:</string>
+    <string name="lfm_item_details_size">Размер:</string>
+    <string name="lfm_item_details_modified">Изменен:</string>
+    <string name="lfm_item_details_mime_type">MIME-тип:</string>
+    <string name="lfm_item_details_children">Содержит:</string>
+    <string name="lfm_item_details_readable">Для чтения:</string>
+    <string name="lfm_item_details_writable">Для записи:</string>
+    <string name="lfm_item_details_hidden">Скрытый:</string>
+    <string name="lfm_item_details_yes">Да</string>
+    <string name="lfm_item_details_no">Нет</string>
+    <string name="lfm_item_details_folder">Папка</string>
+    <string name="lfm_item_details_file">Файл</string>
+    <string name="lfm_item_details_items_count">элементов: %1$d</string>
+    <string name="lfm_item_details_no_details">Сведения для выбранных элементов недоступны.</string>
+    <string name="lfm_item_details_select_one_item">Выберите один элемент для просмотра сведений.</string>
+
     <!-- Localized Processing Summaries -->
     <string name="processing_summary_ready_to_open_txt">Готов к TXT анализу</string>
     <string name="processing_summary_ready_to_open_csv">Готов к CSV анализу</string>

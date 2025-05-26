@@ -24,6 +24,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.example.datagrindset.R // Import R
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
 //import com.example.datagrindset.viewmodel.SummaryData // Keep this
 import com.example.datagrindset.viewmodel.TxtFileViewModel
@@ -85,7 +87,7 @@ fun TxtFileAnalysisScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showSearchBar by remember { mutableStateOf(false) }
     var showSummarySheet by remember { mutableStateOf(false) }
-    var showDetailedSummarySheet by remember { mutableStateOf(false) } // For detailed summary
+    var showDetailedSummarySheet by remember { mutableStateOf(false) }
 
     val searchBarFocusRequester = remember { FocusRequester() }
     val editorFocusRequester = remember { FocusRequester() }
@@ -114,6 +116,7 @@ fun TxtFileAnalysisScreen(
     val currentHighlightColor = MaterialTheme.colorScheme.primaryContainer
     val otherHighlightColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
 
+    // Scroll to current match
     LaunchedEffect(currentResultIndex, textLayoutResultState, searchResults.size, isEditMode, editableContent, fileContent) {
         val activeScrollState = if (isEditMode) editorScrollState else textScrollState
         val contentForLayout = if (isEditMode) editableContent else fileContent ?: ""
@@ -122,14 +125,31 @@ fun TxtFileAnalysisScreen(
             currentMatchRange?.let { matchRange ->
                 if (!isEditMode && textLayoutResultState != null) {
                     val currentTextLayoutResult = textLayoutResultState
-                    currentTextLayoutResult?.let { try { val offset = matchRange.first.coerceIn(0, it.layoutInput.text.length - 1); val boundingBox = it.getBoundingBox(offset); activeScrollState.animateScrollTo(boundingBox.top.toInt()) } catch (e: Exception) { Log.e("TxtFileAnalysisScreen", "Error calculating scroll for read mode: ${e.message}") } }
+                    currentTextLayoutResult?.let {
+                        try {
+                            val offset = matchRange.first.coerceIn(0, it.layoutInput.text.length - 1)
+                            // Using getLineForOffset and getLineTop for BasicTextField might be complex.
+                            // A simpler approach is to estimate based on characters or use Text's BoundingBox.
+                            // For simplicity, let's use the BoundingBox from Text onTextLayout if available,
+                            // or just scroll to the character offset in BasicTextField.
+                            val boundingBox = it.getBoundingBox(offset)
+                            activeScrollState.animateScrollTo(boundingBox.top.toInt())
+                        } catch (e: Exception) {
+                            Log.e("TxtFileAnalysisScreen", "Error calculating scroll for read mode: ${e.message}")
+                        }
+                    }
                 }
+                // Scrolling in BasicTextField (edit mode) is harder to make precise to a line without more complex TextLayout analysis.
             }
         }
     }
 
+    val saveErrorSnackbarMessage = saveError?.let { stringResource(R.string.txt_analysis_save_error_snackbar, it) }
     LaunchedEffect(saveError) {
-        saveError?.let { snackbarHostState.showSnackbar(message = it, duration = SnackbarDuration.Long); viewModel.clearSaveError() }
+        saveErrorSnackbarMessage?.let {
+            snackbarHostState.showSnackbar(message = it, duration = SnackbarDuration.Long)
+            viewModel.clearSaveError()
+        }
     }
 
     LaunchedEffect(isEditMode, showSearchBar) {
@@ -139,9 +159,23 @@ fun TxtFileAnalysisScreen(
 
     val annotatedFileContentForReadMode = remember(fileContent, searchQuery, searchResults, currentResultIndex, currentHighlightColor, otherHighlightColor) {
         buildAnnotatedString {
-            val content = fileContent; if (content.isNullOrEmpty()) return@buildAnnotatedString; append(content)
+            val content = fileContent
+            if (content.isNullOrEmpty()) return@buildAnnotatedString
+            append(content)
             if (searchQuery.isNotBlank() && searchResults.isNotEmpty()) {
-                searchResults.forEachIndexed { index, range -> try { if (range.first >= 0 && range.last < content.length && range.first <= range.last) addStyle(style = SpanStyle(background = if (index == currentResultIndex) currentHighlightColor else otherHighlightColor), start = range.first, end = range.last + 1) } catch (e: Exception) { Log.e("TxtFileAnalysisScreen", "Error applying style for range $range: ${e.message}") } }
+                searchResults.forEachIndexed { index, range ->
+                    try {
+                        if (range.first >= 0 && range.last < content.length && range.first <= range.last) {
+                            addStyle(
+                                style = SpanStyle(background = if (index == currentResultIndex) currentHighlightColor else otherHighlightColor),
+                                start = range.first,
+                                end = range.last + 1
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.e("TxtFileAnalysisScreen", "Error applying style for range $range: ${e.message}")
+                    }
+                }
             }
         }
     }
@@ -152,14 +186,28 @@ fun TxtFileAnalysisScreen(
             showDetailedSummarySheet -> { showDetailedSummarySheet = false; viewModel.clearDetailedSummary() }
             showSearchBar -> { showSearchBar = false; viewModel.clearSearch(); focusManager.clearFocus(true) }
             isEditMode && hasUnsavedChanges -> viewModel.attemptExitEditMode()
+            // else -> navController.popBackStack() // This might be too aggressive if other states are true
         }
     }
 
     if (showDiscardConfirmDialog) {
-        AlertDialog(onDismissRequest = { viewModel.cancelDiscardDialog() }, title = { Text("Unsaved Changes") }, text = { Text("You have unsaved changes. What would you like to do?") }, confirmButton = { TextButton(onClick = { viewModel.saveAndExitEditMode() }) { Text("Save") } }, dismissButton = { TextButton(onClick = { viewModel.confirmDiscardChanges() }) { Text("Discard") } })
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelDiscardDialog() },
+            title = { Text(stringResource(R.string.txt_analysis_unsaved_changes_dialog_title)) },
+            text = { Text(stringResource(R.string.txt_analysis_unsaved_changes_dialog_message)) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.saveAndExitEditMode() }) {
+                    Text(stringResource(R.string.txt_analysis_save_changes_button))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.confirmDiscardChanges() }) {
+                    Text(stringResource(R.string.txt_analysis_discard_button))
+                }
+            }
+        )
     }
 
-    // Basic Summary Bottom Sheet
     if (showSummarySheet) {
         ModalBottomSheet(
             onDismissRequest = { showSummarySheet = false; viewModel.clearSummary() },
@@ -167,22 +215,21 @@ fun TxtFileAnalysisScreen(
             windowInsets = WindowInsets(0.dp)
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("File Summary", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
+                Text(stringResource(R.string.txt_analysis_summary_sheet_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
                 if (isGeneratingSummary) CircularProgressIndicator(modifier = Modifier.padding(vertical = 20.dp))
-                else if (summaryError != null) Text("Error: $summaryError", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 20.dp))
+                else if (summaryError != null) Text(stringResource(R.string.txt_analysis_summary_error, summaryError!!), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 20.dp))
                 else if (summaryResult != null) {
-                    SummaryInfoRow("Lines:", summaryResult!!.lineCount.toString())
-                    SummaryInfoRow("Words:", summaryResult!!.wordCount.toString())
-                    SummaryInfoRow("Characters (with spaces):", summaryResult!!.charCount.toString())
-                    SummaryInfoRow("Characters (no spaces):", summaryResult!!.charCountWithoutSpaces.toString())
-                } else Text("No summary available.", modifier = Modifier.padding(vertical = 20.dp))
+                    SummaryInfoRow(stringResource(R.string.txt_analysis_summary_lines), summaryResult!!.lineCount.toString())
+                    SummaryInfoRow(stringResource(R.string.txt_analysis_summary_words), summaryResult!!.wordCount.toString())
+                    SummaryInfoRow(stringResource(R.string.txt_analysis_summary_chars_spaces), summaryResult!!.charCount.toString())
+                    SummaryInfoRow(stringResource(R.string.txt_analysis_summary_chars_no_spaces), summaryResult!!.charCountWithoutSpaces.toString())
+                } else Text(stringResource(R.string.txt_analysis_summary_not_available), modifier = Modifier.padding(vertical = 20.dp))
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = { showSummarySheet = false; viewModel.clearSummary() }) { Text("Close") }
+                Button(onClick = { showSummarySheet = false; viewModel.clearSummary() }) { Text(stringResource(R.string.txt_analysis_summary_close_button)) }
             }
         }
     }
 
-    // Detailed Summary Bottom Sheet
     if (showDetailedSummarySheet) {
         ModalBottomSheet(
             onDismissRequest = { showDetailedSummarySheet = false; viewModel.clearDetailedSummary() },
@@ -190,30 +237,24 @@ fun TxtFileAnalysisScreen(
             windowInsets = WindowInsets(0.dp)
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .navigationBarsPadding(), // Add padding for navigation bars
+                modifier = Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Keywords / Topics", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
+                Text(stringResource(R.string.txt_analysis_detailed_summary_sheet_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
                 if (isGeneratingDetailedSummary) {
                     CircularProgressIndicator(modifier = Modifier.padding(vertical = 20.dp))
                 } else if (detailedSummaryError != null) {
-                    Text("Error: $detailedSummaryError", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 20.dp))
+                    Text(stringResource(R.string.txt_analysis_summary_error, detailedSummaryError!!), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 20.dp))
                 } else if (!detailedSummaryData.isNullOrEmpty()) {
                     detailedSummaryData?.forEach { (keyword, count) ->
-                        SummaryInfoRow("\"${keyword}\":", count.toString() + if (count == 0) "" else " occurrences")
+                        SummaryInfoRow("\"${keyword}\":", stringResource(R.string.txt_analysis_detailed_summary_occurrences, count))
                     }
                 } else {
-                    Text("No detailed summary available or no keywords found.", modifier = Modifier.padding(vertical = 20.dp))
+                    Text(stringResource(R.string.txt_analysis_detailed_summary_none_found), modifier = Modifier.padding(vertical = 20.dp))
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = {
-                    showDetailedSummarySheet = false
-                    viewModel.clearDetailedSummary()
-                }) {
-                    Text("Close")
+                Button(onClick = { showDetailedSummarySheet = false; viewModel.clearDetailedSummary() }) {
+                    Text(stringResource(R.string.txt_analysis_summary_close_button))
                 }
             }
         }
@@ -225,41 +266,102 @@ fun TxtFileAnalysisScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    if (showSearchBar) BasicTextField(value = searchQuery, onValueChange = { viewModel.onSearchQueryChanged(it) }, modifier = Modifier.fillMaxWidth().focusRequester(searchBarFocusRequester).padding(end = 8.dp), textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), singleLine = true, decorationBox = { innerTextField -> Box(modifier = Modifier.fillMaxWidth()) { if (searchQuery.isEmpty()) Text("Search in file...", color = MaterialTheme.colorScheme.onSurfaceVariant); innerTextField() } })
-                    else Text(text = if (isEditMode) "Edit: $fileName" else fileName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (showSearchBar) {
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.onSearchQueryChanged(it) },
+                            modifier = Modifier.fillMaxWidth().focusRequester(searchBarFocusRequester).padding(end = 8.dp),
+                            textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            singleLine = true,
+                            decorationBox = { innerTextField ->
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    if (searchQuery.isEmpty()) Text(stringResource(R.string.txt_analysis_search_label), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    innerTextField()
+                                }
+                            }
+                        )
+                    } else {
+                        Text(
+                            text = if (isEditMode) stringResource(R.string.txt_analysis_title_edit, fileName) else fileName,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 },
                 navigationIcon = {
-                    if (showSearchBar) IconButton(onClick = { showSearchBar = false; viewModel.clearSearch(); focusManager.clearFocus(true) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close Search") }
-                    else if (isEditMode) IconButton(onClick = { viewModel.attemptExitEditMode() }) { Icon(Icons.Filled.Close, "Close Edit Mode") }
-                    else IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    if (showSearchBar) {
+                        IconButton(onClick = { showSearchBar = false; viewModel.clearSearch(); focusManager.clearFocus(true) }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.txt_analysis_close_search_desc))
+                        }
+                    } else if (isEditMode) {
+                        IconButton(onClick = { viewModel.attemptExitEditMode() }) {
+                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.txt_analysis_close_edit_mode_desc))
+                        }
+                    } else {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.txt_analysis_back_button_desc))
+                        }
+                    }
                 },
                 actions = {
                     if (showSearchBar) {
-                        if (isEditMode) IconButton(onClick = { viewModel.replaceCurrentMatch() }, enabled = totalResults > 0) { Icon(Icons.Filled.FindReplace, "Replace Current") }
-                        if (totalResults > 0) Text("${currentResultIndex + 1}/$totalResults", Modifier.align(Alignment.CenterVertically).padding(horizontal = 4.dp))
-                        IconButton(onClick = { viewModel.goToPreviousMatch() }, enabled = totalResults > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Previous") }
-                        IconButton(onClick = { viewModel.goToNextMatch() }, enabled = totalResults > 0) { Icon(Icons.Filled.KeyboardArrowDown, "Next") }
-                        if (searchQuery.isNotEmpty()) IconButton(onClick = { viewModel.onSearchQueryChanged("") }) { Icon(Icons.Filled.Clear, "Clear Search Text") }
+                        if (isEditMode) {
+                            IconButton(onClick = { viewModel.replaceCurrentMatch() }, enabled = totalResults > 0) {
+                                Icon(Icons.Filled.FindReplace, contentDescription = stringResource(R.string.txt_analysis_replace_current_match_desc))
+                            }
+                        }
+                        if (totalResults > 0) {
+                            Text(stringResource(R.string.txt_analysis_search_results_indicator, currentResultIndex + 1, totalResults), Modifier.align(Alignment.CenterVertically).padding(horizontal = 4.dp))
+                        }
+                        IconButton(onClick = { viewModel.goToPreviousMatch() }, enabled = totalResults > 0) {
+                            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(R.string.txt_analysis_previous_match_desc))
+                        }
+                        IconButton(onClick = { viewModel.goToNextMatch() }, enabled = totalResults > 0) {
+                            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.txt_analysis_next_match_desc))
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
+                                Icon(Icons.Filled.Clear, contentDescription = stringResource(R.string.txt_analysis_clear_search_text_desc))
+                            }
+                        }
                     } else { // Search bar is NOT visible
                         if (isEditMode) {
-                            IconButton(onClick = { viewModel.undo() }, enabled = canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo") }
-                            IconButton(onClick = { viewModel.redo() }, enabled = canRedo) { Icon(Icons.AutoMirrored.Filled.Redo, "Redo") }
+                            IconButton(onClick = { viewModel.undo() }, enabled = canUndo) {
+                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = stringResource(R.string.txt_analysis_undo_desc))
+                            }
+                            IconButton(onClick = { viewModel.redo() }, enabled = canRedo) {
+                                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = stringResource(R.string.txt_analysis_redo_desc))
+                            }
                         }
-                        IconButton(onClick = { showSearchBar = true }) { Icon(Icons.Filled.Search, "Search") }
+                        IconButton(onClick = { showSearchBar = true }) {
+                            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.txt_analysis_search_icon_desc))
+                        }
                         if (isEditMode) {
-                            IconButton(onClick = { viewModel.initiateSaveAs() }) { Icon(Icons.Filled.SaveAs, "Save As") }
-                            if (isSaving) CircularProgressIndicator(Modifier.size(24.dp).padding(horizontal = 8.dp))
-                            else IconButton(onClick = { viewModel.saveChanges { viewModel.exitEditMode() } }) { Icon(Icons.Filled.Done, "Save") }
+                            IconButton(onClick = { viewModel.initiateSaveAs() }) {
+                                Icon(Icons.Filled.SaveAs, contentDescription = stringResource(R.string.txt_analysis_save_as_desc))
+                            }
+                            if (isSaving) {
+                                CircularProgressIndicator(Modifier.size(24.dp).padding(horizontal = 8.dp))
+                            } else {
+                                IconButton(onClick = { viewModel.saveChanges { viewModel.exitEditMode() } }) {
+                                    Icon(Icons.Filled.Done, contentDescription = stringResource(R.string.txt_analysis_save_desc))
+                                }
+                            }
                         } else { // Not in edit mode, not searching
-                            IconButton(onClick = { showMenu = true }) { Icon(Icons.Filled.MoreVert, "More Options") }
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.txt_analysis_more_options_desc))
+                            }
                             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                                DropdownMenuItem(text = { Text("Edit") }, onClick = { viewModel.enterEditMode(); showMenu = false })
                                 DropdownMenuItem(
-                                    text = { Text("Summary (Basic)") },
+                                    text = { Text(stringResource(R.string.txt_analysis_edit_menu_item)) },
+                                    onClick = { viewModel.enterEditMode(); showMenu = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.txt_analysis_summary_basic_menu_item)) },
                                     onClick = { viewModel.generateSummary(); showSummarySheet = true; showMenu = false }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Summary (Detailed)") },
+                                    text = { Text(stringResource(R.string.txt_analysis_summary_detailed_menu_item)) },
                                     onClick = { viewModel.generateDetailedSummary(); showDetailedSummarySheet = true; showMenu = false }
                                 )
                             }
@@ -273,20 +375,71 @@ fun TxtFileAnalysisScreen(
             if (showSearchBar && isEditMode) {
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(value = replaceQuery, onValueChange = { viewModel.onReplaceQueryChanged(it) }, label = { Text("Replace with...") }, modifier = Modifier.weight(1f), singleLine = true)
+                        OutlinedTextField(
+                            value = replaceQuery,
+                            onValueChange = { viewModel.onReplaceQueryChanged(it) },
+                            label = { Text(stringResource(R.string.txt_analysis_replace_with_label)) },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
                         Spacer(Modifier.width(8.dp))
-                        Button(onClick = { viewModel.replaceAllMatches() }, enabled = totalResults > 0) { Text("All") }
+                        Button(onClick = { viewModel.replaceAllMatches() }, enabled = totalResults > 0) {
+                            Text(stringResource(R.string.txt_analysis_replace_all_button))
+                        }
                     }
                     HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
                 }
             }
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
-                    isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                    error != null -> Text("Error: $error", color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center).padding(16.dp))
-                    isEditMode -> OutlinedTextField(value = editableContent, onValueChange = { viewModel.onEditableContentChanged(it) }, modifier = Modifier.fillMaxSize().verticalScroll(editorScrollState).padding(8.dp).focusRequester(editorFocusRequester), textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary, unfocusedBorderColor = MaterialTheme.colorScheme.outline))
-                    fileContent != null -> SelectionContainer { Text(text = annotatedFileContentForReadMode, modifier = Modifier.fillMaxSize().verticalScroll(textScrollState).padding(16.dp), fontFamily = FontFamily.Monospace, fontSize = 14.sp, onTextLayout = { textLayoutResultState = it }) }
-                    else -> Text("No content loaded or file is empty.", Modifier.align(Alignment.Center).padding(16.dp))
+                    isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(8.dp))
+                            Text(stringResource(R.string.txt_analysis_loading_content))
+                        }
+                    }
+                    error != null -> Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                        Text(stringResource(R.string.txt_analysis_error_loading, error!!), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    isEditMode -> {
+                        // Using BasicTextField for edit mode as OutlinedTextField was causing some issues with full-height scroll + padding
+                        BasicTextField(
+                            value = editableContent,
+                            onValueChange = { viewModel.onEditableContentChanged(it) },
+                            modifier = Modifier.fillMaxSize().padding(16.dp).focusRequester(editorFocusRequester).verticalScroll(editorScrollState),
+                            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+                        )
+                        if (editableContent.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.txt_analysis_edit_mode_hint),
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant),
+                                modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
+                            )
+                        }
+                    }
+                    fileContent != null -> { // Read mode
+                        if (fileContent!!.isEmpty() && !isLoading) {
+                            Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                                Text(stringResource(R.string.txt_analysis_empty_file), style = MaterialTheme.typography.bodyLarge)
+                            }
+                        } else {
+                            SelectionContainer(modifier = Modifier.fillMaxSize()) {
+                                Text(
+                                    text = annotatedFileContentForReadMode,
+                                    modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(textScrollState),
+                                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
+                                    onTextLayout = { textLayoutResultState = it }
+                                )
+                            }
+                        }
+                    }
+                    else -> { // Fallback when fileContent is null and not loading (should ideally be handled by isLoading or error state)
+                        Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                            Text(stringResource(R.string.txt_analysis_empty_file), style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
                 }
             }
         }
@@ -309,6 +462,7 @@ fun SummaryInfoRow(label: String, value: String) {
 fun TxtFileAnalysisScreenPreview() {
     DataGrindsetTheme {
         val dummyUri = "content://com.example.datagrindset.provider/dummy.txt".toUri()
+        // Corrected: Pass LocalContext.current to NavController for Preview
         TxtFileAnalysisScreen(navController = NavController(LocalContext.current), fileUri = dummyUri)
     }
 }
