@@ -56,14 +56,33 @@
     <string name="lfm_more_options_icon_desc">Дополнительные параметры</string>
     <string name="lfm_settings_icon_desc">Настройки</string>
     <string name="lfm_processing_status_desc">Статус обработки: %1$s</string>
-
+    <string name="lfm_could_not_open_file_toast">Не получилось открыть файл: %1$s</string>
+    <string name="lfm_create_folder_menu">Создать новую папку</string>
+    <string name="lfm_create_folder_dialog_title">Создать новую папку</string>
+    <string name="lfm_folder_name_label">Имя папки</string>
+    <string name="lfm_create_button">Создать</string>
+    <string name="lfm_folder_created_toast">Папка \'%1$s\' создана</string>
+    <string name="lfm_error_creating_folder_toast">Ошибка создания папки: %1$s</string>
+    <string name="lfm_empty_folder_name_toast">Имя папки не может быть пустым</string>
+    <string name="lfm_action_copy_to_clipboard_toast">Скопировано %1$d элементов в буфер обмена</string>
+    <string name="lfm_action_cut_to_clipboard_toast">Вырезано %1$d элементов в буфер обмена</string>
+    <string name="lfm_action_paste_here">Вставить сюда</string>
+    <string name="lfm_action_paste_desc">Вставить</string>
+    <string name="lfm_paste_success_toast">Вставлено %1$d элементов</string>
+    <string name="lfm_paste_error_toast">Ошибка вставки элементов: %1$s</string>
+    <string name="lfm_no_items_to_paste_toast">Нет элементов в буфере обмена для вставки</string>
+    <string name="lfm_select_items_to_move_here_menu">Выбрать элементы для перемещения сюда</string>
+    <string name="lfm_move_items_here_success_toast">Перемещено %1$d элементов сюда</string>
+    <string name="lfm_move_items_here_error_toast">Ошибка перемещения элементов: %1$s</string>
+    <string name="lfm_move_external_not_fully_implemented">Перемещение папок из внешних источников пока не полностью поддерживается.</string>
+    <string name="lfm_bottom_bar_copy_desc">Копировать</string>
     <!-- Selection Mode Strings -->
     <string name="lfm_selection_mode_cancel_desc">Отменить выделение</string>
     <string name="lfm_selection_mode_selected_count">Выбрано: %1$d</string>
     <string name="lfm_selection_mode_select_all_desc">Выбрать все</string>
     <string name="lfm_selection_mode_deselect_all_desc">Снять выделение со всех</string>
     <string name="lfm_bottom_bar_share_desc">Поделиться</string>
-    <string name="lfm_bottom_bar_move_desc">Переместить</string>
+    <string name="lfm_bottom_bar_move_desc">Вырезать</string>
     <string name="lfm_bottom_bar_archive_desc">Архивировать</string>
     <string name="lfm_bottom_bar_more_options_desc">Другие действия</string>
     <string name="lfm_action_open_with_another_app">Открыть с помощью...</string>

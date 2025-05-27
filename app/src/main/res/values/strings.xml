@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">DataGrindset</string>
 
-    <!-- Settings Screen (EXISTING) -->
+    <!-- Settings Screen -->
     <string name="settings_screen_title">Settings</string>
     <string name="settings_back_button_desc">Back</string>
     <string name="settings_auth_section_title">Authentication</string>
@@ -26,7 +26,7 @@
     <string name="settings_contact_support_button">Contact Support</string>
     <string name="settings_no_email_app_toast">No email app found.</string>
 
-    <!-- LocalFileManagerScreen Titles (EXISTING + NEW) -->
+    <!-- LocalFileManagerScreen Titles -->
     <string name="lfm_title_default">DataGrindset</string>
     <string name="lfm_search_placeholder">Search in current folder...</string>
     <string name="lfm_unsupported_file_title">Unsupported File Type</string>
@@ -56,14 +56,16 @@
     <string name="lfm_more_options_icon_desc">More Options</string>
     <string name="lfm_settings_icon_desc">Settings</string>
     <string name="lfm_processing_status_desc">Processing Status: %1$s</string>
+    <string name="lfm_could_not_open_file_toast">Could not open file: %1$s</string>
 
-    <!-- NEW: Selection Mode Strings -->
+    <!-- Selection Mode Strings -->
     <string name="lfm_selection_mode_cancel_desc">Cancel selection</string>
     <string name="lfm_selection_mode_selected_count">Selected: %1$d</string>
     <string name="lfm_selection_mode_select_all_desc">Select All</string>
     <string name="lfm_selection_mode_deselect_all_desc">Deselect All</string>
     <string name="lfm_bottom_bar_share_desc">Share</string>
-    <string name="lfm_bottom_bar_move_desc">Move</string>
+    <string name="lfm_bottom_bar_move_desc">Cut</string> <!-- Changed from Move to Cut for clipboard behavior -->
+    <string name="lfm_bottom_bar_copy_desc">Copy</string>
     <string name="lfm_bottom_bar_archive_desc">Archive</string>
     <string name="lfm_bottom_bar_more_options_desc">More actions</string>
     <string name="lfm_action_open_with_another_app">Open with...</string>
@@ -93,8 +95,27 @@
     <string name="lfm_item_details_no_details">Details not available for selected items.</string>
     <string name="lfm_item_details_select_one_item">Select a single item to view details.</string>
 
+    <!-- NEW Strings for Create Folder, Copy/Cut/Paste, Move Here -->
+    <string name="lfm_create_folder_menu">Create new folder</string>
+    <string name="lfm_create_folder_dialog_title">Create New Folder</string>
+    <string name="lfm_folder_name_label">Folder name</string>
+    <string name="lfm_create_button">Create</string>
+    <string name="lfm_folder_created_toast">Folder \'%1$s\' created</string>
+    <string name="lfm_error_creating_folder_toast">Error creating folder: %1$s</string>
+    <string name="lfm_empty_folder_name_toast">Folder name cannot be empty</string>
+    <string name="lfm_action_copy_to_clipboard_toast">%1$d items copied to clipboard</string>
+    <string name="lfm_action_cut_to_clipboard_toast">%1$d items cut to clipboard</string>
+    <string name="lfm_action_paste_here">Paste here</string>
+    <string name="lfm_action_paste_desc">Paste</string>
+    <string name="lfm_paste_success_toast">%1$d items pasted</string>
+    <string name="lfm_paste_error_toast">Error pasting items: %1$s</string>
+    <string name="lfm_no_items_to_paste_toast">No items in clipboard to paste</string>
+    <string name="lfm_select_items_to_move_here_menu">Select items to move here</string>
+    <string name="lfm_move_items_here_success_toast">%1$d items moved here</string>
+    <string name="lfm_move_items_here_error_toast">Error moving items: %1$s</string>
+    <string name="lfm_move_external_not_fully_implemented">Moving folders from external sources is not fully supported yet.</string>
 
-    <!-- Localized Processing Summaries (EXISTING) -->
+    <!-- Localized Processing Summaries -->
     <string name="processing_summary_ready_to_open_txt">Ready for TXT analysis</string>
     <string name="processing_summary_ready_to_open_csv">Ready for CSV analysis</string>
     <string name="processing_summary_unsupported_type">File type not supported. Try opening externally.</string>

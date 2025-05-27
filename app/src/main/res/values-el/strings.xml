@@ -56,7 +56,26 @@
     <string name="lfm_more_options_icon_desc">Περισσότερες επιλογές</string>
     <string name="lfm_settings_icon_desc">Ρυθμίσεις</string>
     <string name="lfm_processing_status_desc">Κατάσταση επεξεργασίας: %1$s</string>
-
+    <!-- ... existing translations ... -->
+    <string name="lfm_create_folder_menu">Δημιουργία νέου φακέλου</string>
+    <string name="lfm_create_folder_dialog_title">Δημιουργία Νέου Φακέλου</string>
+    <string name="lfm_folder_name_label">Όνομα φακέλου</string>
+    <string name="lfm_create_button">Δημιουργία</string>
+    <string name="lfm_folder_created_toast">Ο φάκελος \'%1$s\' δημιουργήθηκε</string>
+    <string name="lfm_error_creating_folder_toast">Σφάλμα δημιουργίας φακέλου: %1$s</string>
+    <string name="lfm_empty_folder_name_toast">Το όνομα του φακέλου δεν μπορεί να είναι κενό</string>
+    <string name="lfm_action_copy_to_clipboard_toast">Αντιγράφηκαν %1$d στοιχεία στο πρόχειρο</string>
+    <string name="lfm_action_cut_to_clipboard_toast">Αποκόπηκαν %1$d στοιχεία στο πρόχειρο</string>
+    <string name="lfm_action_paste_here">Επικόλληση εδώ</string>
+    <string name="lfm_action_paste_desc">Επικόλληση</string>
+    <string name="lfm_paste_success_toast">Επικολλήθηκαν %1$d στοιχεία</string>
+    <string name="lfm_paste_error_toast">Σφάλμα επικόλλησης στοιχείων: %1$s</string>
+    <string name="lfm_no_items_to_paste_toast">Δεν υπάρχουν στοιχεία στο πρόχειρο για επικόλληση</string>
+    <string name="lfm_select_items_to_move_here_menu">Επιλογή στοιχείων για μετακίνηση εδώ</string>
+    <string name="lfm_move_items_here_success_toast">Μετακινήθηκαν %1$d στοιχεία εδώ</string>
+    <string name="lfm_move_items_here_error_toast">Σφάλμα μετακίνησης στοιχείων: %1$s</string>
+    <string name="lfm_move_external_not_fully_implemented">Η μετακίνηση φακέλων από εξωτερικές πηγές δεν υποστηρίζεται πλήρως ακόμη.</string>
+    <string name="lfm_bottom_bar_copy_desc">Αντιγραφή</string>
     <!-- Selection Mode Strings -->
     <string name="lfm_selection_mode_cancel_desc">Ακύρωση επιλογής</string>
     <string name="lfm_selection_mode_selected_count">Επιλεγμένα: %1$d</string>
@@ -92,7 +111,7 @@
     <string name="lfm_item_details_items_count">%1$d στοιχεία</string>
     <string name="lfm_item_details_no_details">Οι λεπτομέρειες δεν είναι διαθέσιμες για τα επιλεγμένα στοιχεία.</string>
     <string name="lfm_item_details_select_one_item">Επιλέξτε ένα μόνο στοιχείο για προβολή λεπτομερειών.</string>
-
+    <string name="lfm_could_not_open_file_toast">Could not open file: %1$s</string>
     <!-- Localized Processing Summaries -->
     <string name="processing_summary_ready_to_open_txt">Έτοιμο για ανάλυση TXT</string>
     <string name="processing_summary_ready_to_open_csv">Έτοιμο για ανάλυση CSV</string>
