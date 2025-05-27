@@ -4,10 +4,8 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-// import android.provider.DocumentsContract // Not strictly needed if DocumentFile is used consistently
+// import android.provider.DocumentsContract // Keep if needed for specific operations
 import android.util.Log
-import android.widget.Toast
-// import androidx.core.content.FileProvider // Needed if sharing app-private files, not for SAF content URIs directly
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -27,9 +25,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-// import java.io.File // Not used for SAF operations directly
+import java.io.IOException
 import java.text.Normalizer
-// import java.util.Date // Not directly used here, but by formatDate
 import java.util.Locale
 
 sealed class DirectoryEntry(open val id: String, open val name: String, open val uri: Uri) {
@@ -63,13 +60,14 @@ data class ItemDetails(
     val isHidden: Boolean
 )
 
-
 class LocalFileManagerViewModel(application: Application) : AndroidViewModel(application) {
     private val context: Context get() = getApplication()
     private val _rootTreeUri = MutableStateFlow<Uri?>(null)
     val rootTreeUri: StateFlow<Uri?> = _rootTreeUri.asStateFlow()
 
     private val _currentFolderUri = MutableStateFlow<Uri?>(null)
+    val currentFolderUri: StateFlow<Uri?> = _currentFolderUri.asStateFlow()
+
     private val _directoryStack = MutableStateFlow<List<Uri>>(emptyList())
 
     private val _rawDirectoryEntries = MutableStateFlow<List<DirectoryEntry>>(emptyList())
@@ -101,12 +99,23 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     private val _showItemDetailsDialog = MutableStateFlow<ItemDetails?>(null)
     val showItemDetailsDialog: StateFlow<ItemDetails?> = _showItemDetailsDialog.asStateFlow()
 
-    // Event for MainActivity to launch directory picker
     private val _launchDirectoryPickerEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val launchDirectoryPickerEvent = _launchDirectoryPickerEvent.asSharedFlow()
 
     private val _toastMessageEvent = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val toastMessageEvent = _toastMessageEvent.asSharedFlow()
+
+    private val _showCreateFolderDialog = MutableStateFlow(false)
+    val showCreateFolderDialog: StateFlow<Boolean> = _showCreateFolderDialog.asStateFlow()
+
+    private val _clipboardUris = MutableStateFlow<Set<Uri>>(emptySet())
+    val clipboardUris: StateFlow<Set<Uri>> = _clipboardUris.asStateFlow()
+
+    private val _isCutOperation = MutableStateFlow(false)
+    // val isCutOperation: StateFlow<Boolean> = _isCutOperation.asStateFlow() // Not directly needed by UI for now
+
+    private val _launchSystemFilePickerForMoveEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val launchSystemFilePickerForMoveEvent = _launchSystemFilePickerForMoveEvent.asSharedFlow()
 
     val directoryEntries: StateFlow<List<DirectoryEntry>> = combine(
         _rawDirectoryEntries, _searchText, _sortOption
@@ -148,13 +157,11 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         val sharedPrefs = application.getSharedPreferences("LocalFileManagerPrefs", Context.MODE_PRIVATE)
         sharedPrefs.getString("root_uri", null)?.let { uriString ->
             val uri = Uri.parse(uriString)
-            Log.d("LFMViewModel", "Found persisted root URI: $uriString")
             if (checkAndRequestPersistedPermissions(uri)) {
                 _rootTreeUri.value = uri
                 _currentFolderUri.value = uri
                 fetchDirectoryEntries(uri)
             } else {
-                Log.w("LFMViewModel", "Failed to re-acquire permission for $uriString")
                 sharedPrefs.edit().remove("root_uri").apply()
             }
         }
@@ -163,49 +170,30 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     private fun checkAndRequestPersistedPermissions(uri: Uri): Boolean {
         val persistedUriPermissions = context.contentResolver.persistedUriPermissions
         val hasPersistedPermission = persistedUriPermissions.any { it.uri == uri && it.isReadPermission }
-
         if (hasPersistedPermission) {
             try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                )
-                Log.i("LFMViewModel", "Successfully re-acquired persisted permission for root URI: $uri")
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                 return true
-            } catch (e: SecurityException) {
-                Log.e("LFMViewModel", "SecurityException trying to re-take permission for $uri", e)
-                return false
-            }
+            } catch (e: SecurityException) { Log.e("LFMViewModel", "SecurityException re-taking permission for $uri", e) }
         }
         return false
     }
 
-
-    fun setRootTreeUri(uri: Uri) { // Called by MainActivity after picker
+    fun setRootTreeUri(uri: Uri) {
         try {
-            val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            context.contentResolver.takePersistableUriPermission(uri, takeFlags)
-
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             _rootTreeUri.value = uri
             _currentFolderUri.value = uri
             _directoryStack.value = emptyList()
             fetchDirectoryEntries(uri)
             exitSelectionMode()
-
-            val sharedPrefs = getApplication<Application>().getSharedPreferences("LocalFileManagerPrefs", Context.MODE_PRIVATE)
-            sharedPrefs.edit().putString("root_uri", uri.toString()).apply()
-            Log.i("LFMViewModel", "New root URI set and persisted: $uri")
-
-        } catch (e: SecurityException) {
-            Log.e("LFMViewModel", "SecurityException setting root URI: $uri", e)
-        }
+            _clipboardUris.value = emptySet()
+            getApplication<Application>().getSharedPreferences("LocalFileManagerPrefs", Context.MODE_PRIVATE)
+                .edit().putString("root_uri", uri.toString()).apply()
+        } catch (e: SecurityException) { Log.e("LFMViewModel", "SecurityException setting root URI: $uri", e) }
     }
 
-    // Called from UI to request directory selection
-    fun requestSelectRootDirectory() {
-        _launchDirectoryPickerEvent.tryEmit(Unit)
-    }
-
+    fun requestSelectRootDirectory() { _launchDirectoryPickerEvent.tryEmit(Unit) }
 
     fun navigateTo(folderEntry: DirectoryEntry.FolderEntry) {
         _currentFolderUri.value?.let {
@@ -243,45 +231,27 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         }
     }
 
-
     private fun fetchDirectoryEntries(folderUri: Uri) {
-        Log.d("LFMViewModel", "Fetching entries for folder URI: $folderUri")
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val documentFile = DocumentFile.fromTreeUri(context, folderUri)
-                if (documentFile == null || !documentFile.isDirectory) {
-                    Log.e("LFMViewModel", "Not a directory or URI is invalid: $folderUri"); _rawDirectoryEntries.value = emptyList(); return@launch
-                }
-                if (!documentFile.canRead()) {
-                    Log.e("LFMViewModel", "No read permission for folder: ${documentFile.uri}")
-                    val rootDocFile = _rootTreeUri.value?.let { DocumentFile.fromTreeUri(context, it) }
-                    if (rootDocFile == null || !rootDocFile.canRead()) { Log.e("LFMViewModel", "Root URI also lacks read permission or is null."); _rawDirectoryEntries.value = emptyList(); return@launch }
-                    Log.w("LFMViewModel", "Folder ${documentFile.uri} reported no read permission, but root URI has it. Proceeding cautiously.")
-                }
-
+                if (documentFile == null || !documentFile.isDirectory) { _rawDirectoryEntries.value = emptyList(); return@launch }
                 val entries = mutableListOf<DirectoryEntry>()
                 documentFile.listFiles().forEach { file ->
                     if (file.name == null) return@forEach
-                    if (file.isDirectory) {
-                        entries.add(DirectoryEntry.FolderEntry(id = file.uri.toString() + "_folder", name = file.name!!, uri = file.uri, childCount = file.listFiles().count { it.name != null }))
-                    } else {
-                        entries.add(DirectoryEntry.FileEntry(id = file.uri.toString() + "_file", name = file.name!!, uri = file.uri, size = file.length(), dateModified = file.lastModified(), mimeType = file.type ?: context.contentResolver.getType(file.uri)))
-                    }
+                    if (file.isDirectory) { entries.add(DirectoryEntry.FolderEntry(id = file.uri.toString() + "_folder", name = file.name!!, uri = file.uri, childCount = file.listFiles().count { it.name != null })) }
+                    else { entries.add(DirectoryEntry.FileEntry(id = file.uri.toString() + "_file", name = file.name!!, uri = file.uri, size = file.length(), dateModified = file.lastModified(), mimeType = file.type ?: context.contentResolver.getType(file.uri))) }
                 }
-                Log.d("LFMViewModel", "Found ${entries.size} entries in $folderUri")
                 withContext(Dispatchers.Main) { _rawDirectoryEntries.value = entries }
-            } catch (e: Exception) {
-                Log.e("LFMViewModel", "Error fetching directory entries for $folderUri", e)
-                withContext(Dispatchers.Main) { _rawDirectoryEntries.value = emptyList() }
-            }
+            } catch (e: Exception) { withContext(Dispatchers.Main) { _rawDirectoryEntries.value = emptyList() } }
         }
     }
 
     fun prepareFileForAnalysis(fileEntry: DirectoryEntry.FileEntry) {
         val mimeType = fileEntry.mimeType?.lowercase(Locale.ROOT)
-        val fileName = fileEntry.name.lowercase(Locale.ROOT)
-        val isTxt = mimeType == "text/plain" || mimeType == "text/markdown" || fileName.endsWith(".txt") || fileName.endsWith(".md")
-        val isCsv = mimeType == "text/csv" || mimeType == "application/csv" || fileName.endsWith(".csv")
+        val fileName = fileEntry.name.lowercase(Locale.ROOT) // Use original case for display if needed
+        val isTxt = mimeType == "text/plain" || mimeType == "text/markdown" || fileName.endsWith(".txt", ignoreCase = true) || fileName.endsWith(".md", ignoreCase = true)
+        val isCsv = mimeType == "text/csv" || mimeType == "application/csv" || fileName.endsWith(".csv", ignoreCase = true)
 
         when {
             isTxt -> { _fileProcessingStatusMap.value += (fileEntry.uri to (ProcessingStatus.SUCCESS to LocalizedSummary(R.string.processing_summary_ready_to_open_txt))); _navigateToAnalysisTarget.value = fileEntry }
@@ -292,15 +262,11 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
 
     fun deleteSelectedItems() {
         viewModelScope.launch(Dispatchers.IO) {
-            val itemsToDelete = _selectedItems.value.toList()
-            itemsToDelete.forEach { uri ->
-                try {
-                    DocumentFile.fromSingleUri(context, uri)?.delete()
-                    Log.i("LFMViewModel", "Deleted selected item: $uri")
-                    _fileProcessingStatusMap.value -= uri
-                } catch (e: Exception) { Log.e("LFMViewModel", "Error deleting selected item $uri", e) }
+            _selectedItems.value.forEach { uri ->
+                try { DocumentFile.fromSingleUri(context, uri)?.delete(); _fileProcessingStatusMap.value -= uri }
+                catch (e: Exception) { Log.e("LFMViewModel", "Error deleting $uri", e) }
             }
-            _currentFolderUri.value?.let { fetchDirectoryEntries(it) } // Refresh
+            _currentFolderUri.value?.let { fetchDirectoryEntries(it) }
             withContext(Dispatchers.Main) { exitSelectionMode() }
         }
     }
@@ -316,21 +282,16 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
 
     fun shareSelectedItems() {
         val selectedUris = _selectedItems.value.toList()
-        if (selectedUris.isEmpty()) { Toast.makeText(context, context.getString(R.string.lfm_action_share_no_items), Toast.LENGTH_SHORT).show(); return }
-
+        if (selectedUris.isEmpty()) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_action_share_no_items)); return }
         val shareIntent = Intent().apply {
             action = if (selectedUris.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE
-            type = "*/*"
-            val urisToShare = ArrayList(selectedUris)
-            if (selectedUris.size == 1) {
-                putExtra(Intent.EXTRA_STREAM, urisToShare.first())
-                DocumentFile.fromSingleUri(context, urisToShare.first())?.type?.let { type = it }
-            } else { putParcelableArrayListExtra(Intent.EXTRA_STREAM, urisToShare) }
+            type = "*/*"; val urisToShare = ArrayList(selectedUris)
+            if (selectedUris.size == 1) { putExtra(Intent.EXTRA_STREAM, urisToShare.first()); DocumentFile.fromSingleUri(context, urisToShare.first())?.type?.let { type = it } }
+            else { putParcelableArrayListExtra(Intent.EXTRA_STREAM, urisToShare) }
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        try {
-            context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.lfm_bottom_bar_share_desc)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
-        } catch (e: Exception) { Log.e("LFMViewModel", "Error sharing items", e); Toast.makeText(context, context.getString(R.string.lfm_action_share_error), Toast.LENGTH_SHORT).show() }
+        try { context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.lfm_bottom_bar_share_desc)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }
+        catch (e: Exception) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_action_share_error)) }
         exitSelectionMode()
     }
 
@@ -339,8 +300,9 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             val fileUri = _selectedItems.value.first()
             val mimeType = DocumentFile.fromSingleUri(context, fileUri)?.type ?: context.contentResolver.getType(fileUri) ?: "*/*"
             val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(fileUri, mimeType); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-            try { context.startActivity(Intent.createChooser(intent, context.getString(R.string.lfm_action_open_with_another_app)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) } catch (e: Exception) { Log.e("LFMViewModel", "Failed ACTION_VIEW: ${e.message}") }
-        } else { Toast.makeText(context, context.getString(R.string.lfm_action_open_with_select_one_file), Toast.LENGTH_SHORT).show() }
+            try { context.startActivity(Intent.createChooser(intent, context.getString(R.string.lfm_action_open_with_another_app)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }
+            catch (e: Exception) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_could_not_open_file_toast, e.localizedMessage ?: "Unknown")) }
+        } else { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_action_open_with_select_one_file)) }
         exitSelectionMode()
     }
 
@@ -349,26 +311,125 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             val uri = _selectedItems.value.first()
             val docFile = DocumentFile.fromSingleUri(context, uri)
             if (docFile != null) {
-                _showItemDetailsDialog.value = ItemDetails(
-                    name = docFile.name ?: "Unknown", path = docFile.uri.toString(), // Use URI string as path
-                    type = if (docFile.isDirectory) context.getString(R.string.lfm_item_details_folder) else context.getString(R.string.lfm_item_details_file),
-                    size = if (docFile.isFile) docFile.length() else null, dateModified = docFile.lastModified(), // lastModified works for both
-                    mimeType = if (docFile.isFile) docFile.type ?: context.contentResolver.getType(uri) else null,
-                    childrenCount = if (docFile.isDirectory) docFile.listFiles().size else null,
-                    isReadable = docFile.canRead(), isWritable = docFile.canWrite(),
-                    isHidden = docFile.name?.startsWith(".") ?: false
-                )
-            } else { _showItemDetailsDialog.value = ItemDetails("Error", "Could not access item", "Unknown", null, null, null, null, false, false, false) }
-        } else { _showItemDetailsDialog.value = ItemDetails(context.getString(R.string.lfm_item_details_select_one_item), "", "", null, null, null, null, false, false, false) }
+                _showItemDetailsDialog.value = ItemDetails(name = docFile.name ?: "Unknown", path = docFile.uri.toString(), type = if (docFile.isDirectory) context.getString(R.string.lfm_item_details_folder) else context.getString(R.string.lfm_item_details_file), size = if (docFile.isFile) docFile.length() else null, dateModified = docFile.lastModified(), mimeType = if (docFile.isFile) docFile.type ?: context.contentResolver.getType(uri) else null, childrenCount = if (docFile.isDirectory) docFile.listFiles().size else null, isReadable = docFile.canRead(), isWritable = docFile.canWrite(), isHidden = docFile.name?.startsWith(".") ?: false)
+            } else { _showItemDetailsDialog.value = ItemDetails(context.getString(R.string.lfm_item_details_no_details), "", "", null,null,null,null,false,false,false) }
+        } else { _showItemDetailsDialog.value = ItemDetails(context.getString(R.string.lfm_item_details_select_one_item), "", "", null,null,null,null,false,false,false) }
     }
-
     fun dismissItemDetailsDialog() { _showItemDetailsDialog.value = null }
 
-    val triggerMoveNotImplementedToast = MutableStateFlow(false)
-    val triggerArchiveNotImplementedToast = MutableStateFlow(false)
-    fun onMoveSelected() { triggerMoveNotImplementedToast.value = true; exitSelectionMode() }
-    fun onArchiveSelected() { triggerArchiveNotImplementedToast.value = true; exitSelectionMode() }
-    fun resetMoveToastTrigger() { triggerMoveNotImplementedToast.value = false }
-    fun resetArchiveToastTrigger() { triggerArchiveNotImplementedToast.value = false }
-}
+    fun requestShowCreateFolderDialog() { _showCreateFolderDialog.value = true }
+    fun dismissCreateFolderDialog() { _showCreateFolderDialog.value = false }
 
+    fun createFolderInCurrentDirectory(folderName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val parentUri = _currentFolderUri.value ?: _rootTreeUri.value
+            if (parentUri == null) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_error_creating_folder_toast, "No current dir")); return@launch }
+            if (folderName.isBlank()) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_empty_folder_name_toast)); return@launch }
+            val parentDocFile = DocumentFile.fromTreeUri(context, parentUri)
+            try {
+                val newFolder = parentDocFile?.createDirectory(folderName)
+                if (newFolder != null && newFolder.exists()) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_folder_created_toast, folderName)); fetchDirectoryEntries(parentUri) }
+                else { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_error_creating_folder_toast, "Failed")) }
+            } catch (e: Exception) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_error_creating_folder_toast, e.localizedMessage ?: "Unknown")) }
+            withContext(Dispatchers.Main) { dismissCreateFolderDialog() }
+        }
+    }
+
+    fun copySelectedToClipboard() {
+        if (_selectedItems.value.isEmpty()) return
+        _clipboardUris.value = _selectedItems.value.toSet(); _isCutOperation.value = false
+        _toastMessageEvent.tryEmit(context.getString(R.string.lfm_action_copy_to_clipboard_toast, _clipboardUris.value.size))
+        exitSelectionMode()
+    }
+
+    fun cutSelectedToClipboard() {
+        if (_selectedItems.value.isEmpty()) return
+        _clipboardUris.value = _selectedItems.value.toSet(); _isCutOperation.value = true
+        _toastMessageEvent.tryEmit(context.getString(R.string.lfm_action_cut_to_clipboard_toast, _clipboardUris.value.size))
+        exitSelectionMode()
+    }
+
+    fun pasteFromClipboard() {
+        val urisToProcess = _clipboardUris.value
+        val targetDirUri = _currentFolderUri.value ?: _rootTreeUri.value
+        if (urisToProcess.isEmpty()) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_no_items_to_paste_toast)); return }
+        if (targetDirUri == null) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_paste_error_toast, "No destination")); return }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            var successCount = 0; var errorOccurred = false
+            try {
+                val targetDirDoc = DocumentFile.fromTreeUri(context, targetDirUri) ?: throw IOException("Invalid dest dir")
+                for (sourceUri in urisToProcess) {
+                    if (sourceUri == targetDirUri || isUriDescendant(sourceUri, targetDirUri)) {
+                        Log.w("LFMViewModel", "Skipping paste: source $sourceUri is same or parent of target $targetDirUri")
+                        errorOccurred = true; continue
+                    }
+                    val sourceDoc = DocumentFile.fromSingleUri(context, sourceUri)
+                    if (sourceDoc == null) { // Corrected: Check after assignment
+                        Log.w("LFMViewModel", "Skipping paste: Could not access sourceDoc for $sourceUri")
+                        errorOccurred = true; continue
+                    }
+
+                    if (copyDocument(sourceDoc, targetDirDoc)) {
+                        successCount++; if (_isCutOperation.value) sourceDoc.delete()
+                    } else errorOccurred = true
+                }
+                _toastMessageEvent.tryEmit(context.getString(R.string.lfm_paste_success_toast, successCount))
+                if (errorOccurred && successCount < urisToProcess.size) _toastMessageEvent.tryEmit(context.getString(R.string.lfm_paste_error_toast, "Some items failed"))
+            } catch (e: Exception) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_paste_error_toast, e.localizedMessage ?: "IO Error")) }
+            finally { _clipboardUris.value = emptySet(); _isCutOperation.value = false; fetchDirectoryEntries(targetDirUri) }
+        }
+    }
+
+    private fun isUriDescendant(childUri: Uri, parentUri: Uri): Boolean = childUri.toString().startsWith(parentUri.toString()) && childUri != parentUri
+
+    private suspend fun copyDocument(sourceDoc: DocumentFile, targetParentDoc: DocumentFile): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                if (sourceDoc.isDirectory) {
+                    val newDir = targetParentDoc.createDirectory(sourceDoc.name ?: "Dir_${System.currentTimeMillis()}") ?: return@withContext false
+                    var success = true; sourceDoc.listFiles().forEach { if (!copyDocument(it, newDir)) success = false }; success
+                } else {
+                    val newFile = targetParentDoc.createFile(sourceDoc.type ?: "application/octet-stream", sourceDoc.name ?: "File_${System.currentTimeMillis()}") ?: return@withContext false
+                    context.contentResolver.openInputStream(sourceDoc.uri)?.use { input -> context.contentResolver.openOutputStream(newFile.uri)?.use { output -> input.copyTo(output) } ?: return@withContext false } ?: return@withContext false
+                    true
+                }
+            } catch (e: IOException) { Log.e("LFMViewModel", "Error copying ${sourceDoc.uri} to ${targetParentDoc.uri}", e); false }
+        }
+    }
+
+    fun initiateSelectExternalItemsToMove() { _launchSystemFilePickerForMoveEvent.tryEmit(Unit) }
+
+    fun moveUrisToCurrentDirectory(sourceUris: List<Uri>) {
+        val targetDirUri = _currentFolderUri.value ?: _rootTreeUri.value
+        if (targetDirUri == null) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_move_items_here_error_toast, "No dest")); return }
+        if (sourceUris.isEmpty()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            var successCount = 0; var errorOccurred = false
+            val targetDirDoc = DocumentFile.fromTreeUri(context, targetDirUri) ?: run { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_move_items_here_error_toast, "Invalid dest")); return@launch }
+
+            for (sourceUri in sourceUris) {
+                val sourceDoc = DocumentFile.fromSingleUri(context, sourceUri)
+                if (sourceDoc == null) { // Corrected: Check after assignment
+                    Log.w("LFMViewModel", "Skipping move: Could not access sourceDoc for $sourceUri")
+                    errorOccurred = true; continue
+                }
+
+                if (sourceUri == targetDirUri || sourceDoc.isDirectory && isUriDescendant(targetDirUri, sourceUri)) {
+                    Log.w("LFMViewModel", "Cannot move folder into itself or its child for $sourceUri")
+                    errorOccurred = true; continue
+                }
+                try {
+                    if (copyDocument(sourceDoc, targetDirDoc)) { if (sourceDoc.delete()) successCount++ else { Log.w("LFMViewModel", "Copied ${sourceDoc.name} but failed to delete original."); errorOccurred = true } }
+                    else { Log.e("LFMViewModel", "Failed to copy ${sourceDoc.name} for move operation."); errorOccurred = true }
+                } catch (e: Exception) { Log.e("LFMViewModel", "Error moving ${sourceDoc.name}: ${e.message}", e); errorOccurred = true }
+            }
+            if (successCount > 0) _toastMessageEvent.tryEmit(context.getString(R.string.lfm_move_items_here_success_toast, successCount))
+            if (errorOccurred) _toastMessageEvent.tryEmit(context.getString(R.string.lfm_move_items_here_error_toast, "Some failed"))
+            fetchDirectoryEntries(targetDirUri)
+        }
+    }
+
+    fun onArchiveSelected() { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_action_archive_not_implemented)); exitSelectionMode() }
+}

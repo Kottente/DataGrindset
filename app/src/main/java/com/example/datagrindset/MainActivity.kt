@@ -13,7 +13,7 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle // Preferred for lifecycle-aware collection
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -46,6 +46,14 @@ class MainActivity : ComponentActivity() {
         uri?.let { localFileManagerViewModel.setRootTreeUri(it) }
     }
 
+    private val openMultipleDocumentsLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            localFileManagerViewModel.moveUrisToCurrentDirectory(uris)
+        }
+    }
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(LocaleHelper.onAttach(newBase))
     }
@@ -63,6 +71,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(Unit) {
+                    localFileManagerViewModel.launchSystemFilePickerForMoveEvent.collectLatest {
+                        openMultipleDocumentsLauncher.launch(arrayOf("*/*"))
+                    }
+                }
+                LaunchedEffect(Unit) {
                     localFileManagerViewModel.toastMessageEvent.collectLatest { message ->
                         Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                     }
@@ -71,6 +84,7 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = navController, startDestination = "fileManager") {
                     composable("fileManager") {
                         val rootTreeUri by localFileManagerViewModel.rootTreeUri.collectAsStateWithLifecycle()
+                        val currentFolderUri by localFileManagerViewModel.currentFolderUri.collectAsStateWithLifecycle() // For paste target
                         val canNavigateUp by localFileManagerViewModel.canNavigateUp.collectAsStateWithLifecycle()
                         val currentPath by localFileManagerViewModel.currentPathDisplay.collectAsStateWithLifecycle()
                         val entries by localFileManagerViewModel.directoryEntries.collectAsStateWithLifecycle()
@@ -83,26 +97,33 @@ class MainActivity : ComponentActivity() {
                         val selectedItems by localFileManagerViewModel.selectedItems.collectAsStateWithLifecycle()
                         val selectedItemsCount by localFileManagerViewModel.selectedItemsCount.collectAsStateWithLifecycle()
                         val itemDetailsToShow by localFileManagerViewModel.showItemDetailsDialog.collectAsStateWithLifecycle()
+                        val showCreateFolderDialog by localFileManagerViewModel.showCreateFolderDialog.collectAsStateWithLifecycle()
+                        val clipboardUris by localFileManagerViewModel.clipboardUris.collectAsStateWithLifecycle()
+
 
                         LocalFileManagerScreen(
                             navController = navController,
                             rootUriIsSelected = rootTreeUri != null,
+                            currentDirectoryUri = currentFolderUri ?: rootTreeUri,
                             canNavigateUp = canNavigateUp,
                             currentPath = currentPath,
                             entries = entries,
                             fileProcessingStatusMap = fileProcessingStatusMap,
                             searchText = searchText,
-                            onSearchTextChanged = localFileManagerViewModel::onSearchTextChanged,
+                            onSearchTextChanged = localFileManagerViewModel::onSearchTextChanged, // Correctly wired
                             currentSortOption = currentSortOption,
                             onSortOptionSelected = localFileManagerViewModel::onSortOptionSelected,
                             onSelectRootDirectoryClicked = localFileManagerViewModel::requestSelectRootDirectory,
                             onNavigateToFolder = localFileManagerViewModel::navigateTo,
                             onNavigateUp = localFileManagerViewModel::navigateUp,
                             navigateToAnalysisTarget = navigateToAnalysisTarget,
-                            onDidNavigateToAnalysisScreen = { localFileManagerViewModel.didNavigateToAnalysisScreen(); navController.navigate(it) }, // Adjusted to pass route
+                            onDidNavigateToAnalysisScreen = { route -> // Corrected lambda
+                                navController.navigate(route)
+                                localFileManagerViewModel.didNavigateToAnalysisScreen() // Reset trigger
+                            },
                             suggestExternalAppForFile = suggestExternalAppForFile,
                             onDidAttemptToOpenWithExternalApp = localFileManagerViewModel::didAttemptToOpenWithExternalApp,
-                            onPrepareFileForAnalysis = localFileManagerViewModel::prepareFileForAnalysis,
+                            onPrepareFileForAnalysis = localFileManagerViewModel::prepareFileForAnalysis, // Correctly wired
                             isSelectionModeActive = isSelectionModeActive,
                             selectedItems = selectedItems,
                             selectedItemsCount = selectedItemsCount,
@@ -112,20 +133,28 @@ class MainActivity : ComponentActivity() {
                             onSelectAll = localFileManagerViewModel::selectAllInCurrentDirectory,
                             onDeselectAll = localFileManagerViewModel::deselectAll,
                             onShareSelected = localFileManagerViewModel::shareSelectedItems,
-                            onMoveSelected = localFileManagerViewModel::onMoveSelected,
+                            onCutSelected = localFileManagerViewModel::cutSelectedToClipboard,
+                            onCopySelected = localFileManagerViewModel::copySelectedToClipboard,
                             onArchiveSelected = localFileManagerViewModel::onArchiveSelected,
                             onOpenSelectedWithAnotherApp = localFileManagerViewModel::openSelectedFileWithAnotherApp,
                             onShowItemDetails = localFileManagerViewModel::getItemDetailsForSelected,
                             onDeleteSelectedItems = localFileManagerViewModel::deleteSelectedItems,
                             itemDetailsToShow = itemDetailsToShow,
-                            onDismissItemDetails = localFileManagerViewModel::dismissItemDetailsDialog
+                            onDismissItemDetails = localFileManagerViewModel::dismissItemDetailsDialog,
+                            showCreateFolderDialog = showCreateFolderDialog,
+                            onRequestShowCreateFolderDialog = localFileManagerViewModel::requestShowCreateFolderDialog,
+                            onDismissCreateFolderDialog = localFileManagerViewModel::dismissCreateFolderDialog,
+                            onCreateFolder = localFileManagerViewModel::createFolderInCurrentDirectory,
+                            clipboardHasItems = clipboardUris.isNotEmpty(),
+                            onPaste = localFileManagerViewModel::pasteFromClipboard,
+                            onInitiateMoveExternal = localFileManagerViewModel::initiateSelectExternalItemsToMove
                         )
                     }
 
                     composable("txtAnalysisScreen/{fileUri}") { backStackEntry ->
                         val encodedFileUriString = backStackEntry.arguments?.getString("fileUri")
                         if (encodedFileUriString != null) {
-                            val fileUri = encodedFileUriString.toUri()
+                            val fileUri = encodedFileUriString.toUri() // No need to decode if already from Uri.encode
                             TxtFileAnalysisScreen(navController = navController, fileUri = fileUri)
                         } else { Text("Error: TXT file URI not provided.") }
                     }
@@ -135,8 +164,12 @@ class MainActivity : ComponentActivity() {
                     ) { backStackEntry ->
                         val fileUriString = backStackEntry.arguments?.getString("fileUri") ?: return@composable
                         val fileName = backStackEntry.arguments?.getString("fileName") ?: return@composable
-                        val fileUri = URLDecoder.decode(fileUriString, "UTF-8").toUri()
-                        val csvViewModel: CsvFileViewModel = viewModel(factory = CsvFileViewModelFactory(application, fileUri, fileName))
+                        // URLDecoder.decode might not be needed if Uri.encode was used for both parts.
+                        // However, if fileName can have special chars not handled by path segment encoding, it might be.
+                        // For safety, let's assume Uri.encode was sufficient.
+                        val fileUri = fileUriString.toUri() // Uri.decode might be needed if complex encoding was done
+                        val decodedFileName = URLDecoder.decode(fileName, "UTF-8") // Filenames often need decoding
+                        val csvViewModel: CsvFileViewModel = viewModel(factory = CsvFileViewModelFactory(application, fileUri, decodedFileName))
                         CsvFileAnalysisScreen(navController, fileUri, csvViewModel)
                     }
                     composable("settings") {

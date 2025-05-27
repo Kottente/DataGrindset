@@ -41,50 +41,56 @@ import java.util.Date
 import java.util.Locale
 
 // --- File Size Formatter (Extension Function) ---
-fun getIconForMimeType(mimeType: String?): ImageVector {
-    return when (mimeType?.lowercase()) {
-        "text/plain", "text/markdown" -> Icons.AutoMirrored.Filled.InsertDriveFile // Using AutoMirrored for LTR/RTL
-        "text/csv" -> Icons.Filled.DataObject // Or a more specific CSV icon if you have one
-        "application/pdf" -> Icons.Filled.PictureAsPdf
-        "image/jpeg", "image/png", "image/gif", "image/webp" -> Icons.Filled.Image
-        // Add more specific icons as needed
-        else -> Icons.AutoMirrored.Filled.InsertDriveFile // Default icon
-    }
-}
+//fun getIconForMimeType(mimeType: String?): ImageVector {
+//    return when (mimeType?.lowercase()) {
+//        "text/plain", "text/markdown" -> Icons.AutoMirrored.Filled.InsertDriveFile // Using AutoMirrored for LTR/RTL
+//        "text/csv" -> Icons.Filled.DataObject // Or a more specific CSV icon if you have one
+//        "application/pdf" -> Icons.Filled.PictureAsPdf
+//        "image/jpeg", "image/png", "image/gif", "image/webp" -> Icons.Filled.Image
+//        // Add more specific icons as needed
+//        else -> Icons.AutoMirrored.Filled.InsertDriveFile // Default icon
+//    }
+//}
+//
+//// Helper function to format file size
+//fun formatFileSize(sizeBytes: Long): String {
+//    if (sizeBytes <= 0) return "0 B"
+//    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+//    val digitGroups = (Math.log10(sizeBytes.toDouble()) / Math.log10(1024.0)).toInt()
+//    return String.format("%.1f %s", sizeBytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
+//}
+//
+//// Helper function to format date
+//fun formatDate(timestamp: Long): String {
+//    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+//    return sdf.format(Date(timestamp))
+//}
+//
+//
+//@Composable
+//fun ProcessingStatusIndicator(status: ProcessingStatus) {
+//    val statusText = stringResource(R.string.lfm_processing_status_desc, status.name)
+//    val iconVectorAndTint = when (status) {
+//        ProcessingStatus.PENDING -> Icons.Filled.HourglassEmpty to MaterialTheme.colorScheme.onSurfaceVariant
+//        ProcessingStatus.PROCESSING -> Icons.Filled.Sync to MaterialTheme.colorScheme.onSurfaceVariant
+//        ProcessingStatus.SUCCESS -> Icons.Filled.CheckCircle to MaterialTheme.colorScheme.primary
+//        ProcessingStatus.FAILURE -> Icons.Filled.Error to MaterialTheme.colorScheme.error
+//        ProcessingStatus.UNSUPPORTED -> Icons.Filled.Error to MaterialTheme.colorScheme.error
+//        ProcessingStatus.ERROR -> Icons.Filled.Error to MaterialTheme.colorScheme.error
+//        ProcessingStatus.FAILED -> Icons.Filled.Error to MaterialTheme.colorScheme.error
+//        ProcessingStatus.NONE -> null
+//    }
+//
+//    iconVectorAndTint?.let { (icon, tint) ->
+//        Icon(imageVector = icon, contentDescription = statusText, tint = tint, modifier = Modifier.size(18.dp))
+//    }
+//}
 
-// Helper function to format file size
-fun formatFileSize(sizeBytes: Long): String {
-    if (sizeBytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (Math.log10(sizeBytes.toDouble()) / Math.log10(1024.0)).toInt()
-    return String.format("%.1f %s", sizeBytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
-}
-
-// Helper function to format date
-fun formatDate(timestamp: Long): String {
-    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
-    return sdf.format(Date(timestamp))
-}
-
-
+fun getIconForMimeType(mimeType: String?): ImageVector { return when (mimeType?.lowercase(Locale.ROOT)) { "text/plain", "text/markdown" -> Icons.AutoMirrored.Filled.InsertDriveFile; "text/csv" -> Icons.Filled.DataObject; "application/pdf" -> Icons.Filled.PictureAsPdf; "image/jpeg", "image/png", "image/gif", "image/webp" -> Icons.Filled.Image; else -> Icons.AutoMirrored.Filled.InsertDriveFile } }
+fun formatFileSize(sizeBytes: Long): String { if (sizeBytes <= 0) return "0 B"; val units = arrayOf("B", "KB", "MB", "GB", "TB"); val digitGroups = (Math.log10(sizeBytes.toDouble()) / Math.log10(1024.0)).toInt(); return String.format(Locale.US, "%.1f %s", sizeBytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups]) }
+fun formatDate(timestamp: Long): String { val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()); return sdf.format(Date(timestamp)) }
 @Composable
-fun ProcessingStatusIndicator(status: ProcessingStatus) {
-    val statusText = stringResource(R.string.lfm_processing_status_desc, status.name)
-    val iconVectorAndTint = when (status) {
-        ProcessingStatus.PENDING -> Icons.Filled.HourglassEmpty to MaterialTheme.colorScheme.onSurfaceVariant
-        ProcessingStatus.PROCESSING -> Icons.Filled.Sync to MaterialTheme.colorScheme.onSurfaceVariant
-        ProcessingStatus.SUCCESS -> Icons.Filled.CheckCircle to MaterialTheme.colorScheme.primary
-        ProcessingStatus.FAILURE -> Icons.Filled.Error to MaterialTheme.colorScheme.error
-        ProcessingStatus.UNSUPPORTED -> Icons.Filled.Error to MaterialTheme.colorScheme.error
-        ProcessingStatus.ERROR -> Icons.Filled.Error to MaterialTheme.colorScheme.error
-        ProcessingStatus.FAILED -> Icons.Filled.Error to MaterialTheme.colorScheme.error
-        ProcessingStatus.NONE -> null
-    }
-
-    iconVectorAndTint?.let { (icon, tint) ->
-        Icon(imageVector = icon, contentDescription = statusText, tint = tint, modifier = Modifier.size(18.dp))
-    }
-}
+fun ProcessingStatusIndicator(status: ProcessingStatus) { val statusText = stringResource(R.string.lfm_processing_status_desc, status.name); val iconVectorAndTint = when (status) { ProcessingStatus.PENDING -> Icons.Filled.HourglassEmpty to MaterialTheme.colorScheme.onSurfaceVariant; ProcessingStatus.PROCESSING -> Icons.Filled.Sync to MaterialTheme.colorScheme.onSurfaceVariant; ProcessingStatus.SUCCESS -> Icons.Filled.CheckCircle to MaterialTheme.colorScheme.primary; ProcessingStatus.FAILURE, ProcessingStatus.UNSUPPORTED, ProcessingStatus.ERROR, ProcessingStatus.FAILED -> Icons.Filled.Error to MaterialTheme.colorScheme.error; ProcessingStatus.NONE -> null }; iconVectorAndTint?.let { (icon, tint) -> Icon(imageVector = icon, contentDescription = statusText, tint = tint, modifier = Modifier.size(18.dp)) } }
 //fun Long.formatFileSizes(): String {
 //    if (this < 0) return "N/A"
 //    if (this < 1024) return "$this B"
