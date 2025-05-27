@@ -9,12 +9,15 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
@@ -27,6 +30,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FileCopy
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material3.*
@@ -48,6 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -56,6 +62,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.datagrindset.ProcessingStatus
 import com.example.datagrindset.R
 import com.example.datagrindset.ui.SortOption
+import com.example.datagrindset.ViewType
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import com.example.datagrindset.viewmodel.DirectoryEntry
 import com.example.datagrindset.viewmodel.ItemDetails
@@ -64,7 +71,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.core.net.toUri
-import java.net.URLDecoder // For CSV file name decoding if needed
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -86,6 +92,7 @@ fun LocalFileManagerScreen(
     itemDetailsToShow: ItemDetails?,
     showCreateFolderDialog: Boolean,
     clipboardHasItems: Boolean,
+    viewType: ViewType,
     onSearchTextChanged: (String) -> Unit,
     onSortOptionSelected: (SortOption) -> Unit,
     onSelectRootDirectoryClicked: () -> Unit,
@@ -111,7 +118,8 @@ fun LocalFileManagerScreen(
     onDismissCreateFolderDialog: () -> Unit,
     onCreateFolder: (String) -> Unit,
     onPaste: () -> Unit,
-    onInitiateMoveExternal: () -> Unit
+    onInitiateMoveExternal: () -> Unit,
+    onToggleViewType: () -> Unit
 ) {
     var showSearchFieldState by remember { mutableStateOf(false) }
     var showSortAndOptionsKebabMenu by remember { mutableStateOf(false) }
@@ -123,23 +131,24 @@ fun LocalFileManagerScreen(
     val openWithButtonTextResolved = stringResource(R.string.lfm_open_with_button)
     val couldNotOpenFileToastMsg = stringResource(id = R.string.lfm_could_not_open_file_toast)
 
-
+    // For File Opening
     LaunchedEffect(navigateToAnalysisTarget) {
         navigateToAnalysisTarget?.let { fileEntry ->
+            Log.d("LFM_Screen", "navigateToAnalysisTarget changed: ${fileEntry.name}. Current value: $navigateToAnalysisTarget")
             val mimeType = fileEntry.mimeType?.lowercase(Locale.ROOT)
-            val fileName = fileEntry.name // Keep original case for display if needed, encode for URI
+            val fileName = fileEntry.name
             val uriString = fileEntry.uri.toString()
             val isCsv = mimeType in listOf("text/csv", "application/csv", "text/comma-separated-values") || fileName.endsWith(".csv", ignoreCase = true)
             val isTxt = mimeType in listOf("text/plain", "text/markdown") || fileName.endsWith(".txt", ignoreCase = true) || fileName.endsWith(".md", ignoreCase = true)
 
             val route = when {
                 isTxt -> "txtAnalysisScreen/${Uri.encode(uriString)}"
-                // For CSV, ensure filename is also encoded if it's part of the route path
                 isCsv -> "csvAnalysisScreen/${Uri.encode(uriString)}/${Uri.encode(fileName)}"
                 else -> null
             }
             route?.let {
-                onDidNavigateToAnalysisScreen(it) // This lambda is now responsible for nav and resetting state
+                Log.d("LFM_Screen", "Constructed route: $it. Calling onDidNavigateToAnalysisScreen.")
+                onDidNavigateToAnalysisScreen(it)
             }
         }
     }
@@ -158,7 +167,7 @@ fun LocalFileManagerScreen(
                     try {
                         context.startActivity(Intent.createChooser(intent, openWithButtonTextResolved).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
                     } catch (e: Exception) {
-                        Log.e("LFM_Screen", "Failed ACTION_VIEW: ${e.message}")
+                        Log.e("LFM_Screen", "Failed ACTION_VIEW for external app: ${e.message}")
                         Toast.makeText(context, String.format(couldNotOpenFileToastMsg, e.localizedMessage ?: "Unknown error"), Toast.LENGTH_LONG).show()
                     }
                     onDidAttemptToOpenWithExternalApp()
@@ -198,16 +207,20 @@ fun LocalFileManagerScreen(
         )
     }
 
-    BackHandler(enabled = isSelectionModeActive) { onExitSelectionMode() }
+    BackHandler(enabled = isSelectionModeActive) {
+        Log.d("LFM_Screen", "Back pressed in selection mode. Exiting selection mode.")
+        onExitSelectionMode()
+    }
 
     Scaffold(
         topBar = {
+            Log.d("LFM_Screen", "TopAppBar recomposing. isSelectionModeActive: $isSelectionModeActive, selectedItemsCount: $selectedItemsCount")
             if (isSelectionModeActive) {
                 TopAppBar(
                     title = { Text(stringResource(R.string.lfm_selection_mode_selected_count, selectedItemsCount)) },
                     navigationIcon = { IconButton(onClick = onExitSelectionMode) { Icon(Icons.Filled.Close, stringResource(R.string.lfm_selection_mode_cancel_desc)) } },
                     actions = {
-                        val allSelected = selectedItemsCount == entries.size && entries.isNotEmpty()
+                        val allSelected = entries.isNotEmpty() && selectedItemsCount == entries.size
                         IconButton(onClick = { if (allSelected) onDeselectAll() else onSelectAll() }) {
                             Icon(if (allSelected) Icons.Filled.DoneAll else Icons.Filled.SelectAll, stringResource(if (allSelected) R.string.lfm_selection_mode_deselect_all_desc else R.string.lfm_selection_mode_select_all_desc))
                         }
@@ -220,8 +233,17 @@ fun LocalFileManagerScreen(
                     actions = {
                         if (rootUriIsSelected) {
                             if (clipboardHasItems && !showSearchFieldState) { IconButton(onClick = onPaste) { Icon(Icons.Outlined.ContentPaste, stringResource(R.string.lfm_action_paste_desc)) } }
+
                             if (!showSearchFieldState) IconButton(onClick = { showSearchFieldState = true }) { Icon(Icons.Filled.Search, stringResource(R.string.lfm_search_files_icon_desc)) }
                             else IconButton(onClick = { showSearchFieldState = false; onSearchTextChanged("") }) { Icon(Icons.Filled.Close, stringResource(R.string.lfm_close_search_icon_desc)) }
+
+                            IconButton(onClick = onToggleViewType) {
+                                Icon(
+                                    imageVector = if (viewType == ViewType.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
+                                    contentDescription = stringResource(if (viewType == ViewType.LIST) R.string.lfm_view_toggle_grid_desc else R.string.lfm_view_toggle_list_desc)
+                                )
+                            }
+
                             IconButton(onClick = { navController.navigate("settings") }) { Icon(Icons.Filled.Settings, stringResource(R.string.lfm_settings_icon_desc)) }
                             Box {
                                 IconButton(onClick = { showSortAndOptionsKebabMenu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.lfm_more_options_icon_desc)) }
@@ -240,6 +262,7 @@ fun LocalFileManagerScreen(
             }
         },
         bottomBar = {
+            Log.d("LFM_Screen", "BottomBar recomposing. isSelectionModeActive: $isSelectionModeActive, selectedItemsCount: $selectedItemsCount")
             if (isSelectionModeActive && selectedItemsCount > 0) {
                 BottomAppBar {
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
@@ -265,18 +288,36 @@ fun LocalFileManagerScreen(
         Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
             if (rootUriIsSelected) {
                 Text(stringResource(R.string.lfm_current_path_label, currentPath), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (entries.isEmpty() && searchText.isEmpty()) { // Show empty folder only if not searching
+                if (entries.isEmpty() && searchText.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) { Text(stringResource(R.string.lfm_empty_folder), style = MaterialTheme.typography.bodyLarge) }
-                } else if (entries.isEmpty() && searchText.isNotEmpty()) { // Show no search results
+                } else if (entries.isEmpty() && searchText.isNotEmpty()) {
                     Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) { Text(stringResource(R.string.lfm_no_search_results, searchText), style = MaterialTheme.typography.bodyLarge) }
                 }
                 else {
-                    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) {
-                        items(entries, key = { entry -> entry.id }) { entry ->
-                            val isSelected = selectedItems.contains(entry.uri)
-                            when (entry) {
-                                is DirectoryEntry.FileEntry -> FileListItem(fileEntry = entry, processingStatus = fileProcessingStatusMap[entry.uri]?.first ?: ProcessingStatus.NONE, localizedSummary = fileProcessingStatusMap[entry.uri]?.second, isSelected = isSelected, isSelectionModeActive = isSelectionModeActive, onItemClick = { if (isSelectionModeActive) onToggleItemSelected(entry.uri) else onPrepareFileForAnalysis(entry) }, onItemLongClick = { onEnterSelectionMode(entry.uri) })
-                                is DirectoryEntry.FolderEntry -> FolderListItem(folderEntry = entry, isSelected = isSelected, isSelectionModeActive = isSelectionModeActive, onItemClick = { if (isSelectionModeActive) onToggleItemSelected(entry.uri) else onNavigateToFolder(entry) }, onItemLongClick = { onEnterSelectionMode(entry.uri) })
+                    if (viewType == ViewType.LIST) {
+                        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) {
+                            items(entries, key = { entry -> entry.id }) { entry ->
+                                val isSelected = selectedItems.contains(entry.uri)
+                                when (entry) {
+                                    is DirectoryEntry.FileEntry -> FileListItem(fileEntry = entry, processingStatus = fileProcessingStatusMap[entry.uri]?.first ?: ProcessingStatus.NONE, localizedSummary = fileProcessingStatusMap[entry.uri]?.second, isSelected = isSelected, isSelectionModeActive = isSelectionModeActive, onItemClick = { if (isSelectionModeActive) onToggleItemSelected(entry.uri) else onPrepareFileForAnalysis(entry) }, onItemLongClick = { onEnterSelectionMode(entry.uri) })
+                                    is DirectoryEntry.FolderEntry -> FolderListItem(folderEntry = entry, isSelected = isSelected, isSelectionModeActive = isSelectionModeActive, onItemClick = { if (isSelectionModeActive) onToggleItemSelected(entry.uri) else onNavigateToFolder(entry) }, onItemLongClick = { onEnterSelectionMode(entry.uri) })
+                                }
+                            }
+                        }
+                    } else { // GRID View
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 120.dp),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(entries, key = { entry -> "grid_${entry.id}" }) { entry ->
+                                val isSelected = selectedItems.contains(entry.uri)
+                                when (entry) {
+                                    is DirectoryEntry.FileEntry -> GridFileItem(fileEntry = entry, isSelected = isSelected, isSelectionModeActive = isSelectionModeActive, onItemClick = { if (isSelectionModeActive) onToggleItemSelected(entry.uri) else onPrepareFileForAnalysis(entry) }, onItemLongClick = { onEnterSelectionMode(entry.uri) })
+                                    is DirectoryEntry.FolderEntry -> GridFolderItem(folderEntry = entry, isSelected = isSelected, isSelectionModeActive = isSelectionModeActive, onItemClick = { if (isSelectionModeActive) onToggleItemSelected(entry.uri) else onNavigateToFolder(entry) }, onItemLongClick = { onEnterSelectionMode(entry.uri) })
+                                }
                             }
                         }
                     }
@@ -294,8 +335,112 @@ fun LocalFileManagerScreen(
     }
 }
 
-// FolderListItem, FileListItem, ItemDetailsSheetContent, DetailRow, etc. and Previews remain the same
-// Ensure they are using the passed lambdas and states correctly.
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun GridFolderItem(
+    folderEntry: DirectoryEntry.FolderEntry,
+    isSelected: Boolean,
+    isSelectionModeActive: Boolean,
+    onItemClick: () -> Unit,
+    onItemLongClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .aspectRatio(1f)
+            .combinedClickable(onClick = onItemClick, onLongClick = onItemLongClick),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 1.dp),
+        colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(modifier = Modifier.height(24.dp).fillMaxWidth()) { // Consistent height for checkbox area
+                if (isSelectionModeActive) {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = { onItemClick() },
+                        modifier = Modifier.align(Alignment.TopStart).size(24.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.weight(0.1f)) // Small spacer
+            Icon(
+                Icons.Filled.Folder,
+                contentDescription = stringResource(R.string.lfm_folder_icon_desc),
+                modifier = Modifier.size(48.dp), // Fixed size
+                tint = MaterialTheme.colorScheme.secondary
+            )
+            Spacer(modifier = Modifier.weight(0.1f)) // Small spacer
+            Text(
+                folderEntry.name,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 4.dp) // Padding for text
+            )
+            Spacer(modifier = Modifier.weight(0.1f))
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun GridFileItem(
+    fileEntry: DirectoryEntry.FileEntry,
+    isSelected: Boolean,
+    isSelectionModeActive: Boolean,
+    onItemClick: () -> Unit,
+    onItemLongClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .aspectRatio(1f)
+            .combinedClickable(onClick = onItemClick, onLongClick = onItemLongClick),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 1.dp),
+        colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(modifier = Modifier.height(24.dp).fillMaxWidth()) { // Consistent height for checkbox area
+                if (isSelectionModeActive) {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = { onItemClick() },
+                        modifier = Modifier.align(Alignment.TopStart).size(24.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.weight(0.1f))
+            Icon(
+                getIconForMimeType(fileEntry.mimeType),
+                contentDescription = stringResource(R.string.lfm_file_icon_desc),
+                modifier = Modifier.size(48.dp), // Fixed size
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.weight(0.1f))
+            Text(
+                fileEntry.name,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+            Spacer(modifier = Modifier.weight(0.1f))
+        }
+    }
+}
+
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FolderListItem(
@@ -307,12 +452,21 @@ fun FolderListItem(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onClick = onItemClick, onLongClick = onItemLongClick),
+        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(
+            onClick = {
+                Log.d("LFM_Screen_FolderItem", "Clicked. SelectionMode: $isSelectionModeActive")
+                onItemClick()
+            },
+            onLongClick = {
+                Log.d("LFM_Screen_FolderItem", "LongClicked. Entering selection mode.")
+                onItemLongClick()
+            }
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 1.dp),
         colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            if (isSelectionModeActive) { Checkbox(checked = isSelected, onCheckedChange = { onItemClick() }, modifier = Modifier.padding(end = 8.dp)) }
+            if (isSelectionModeActive) { Checkbox(checked = isSelected, onCheckedChange = null, modifier = Modifier.padding(end = 8.dp)) } // Pass null for onCheckedChange if combinedClickable handles toggle
             Icon(Icons.Filled.Folder, stringResource(R.string.lfm_folder_icon_desc), modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.secondary)
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -337,12 +491,21 @@ fun FileListItem(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onClick = onItemClick, onLongClick = onItemLongClick),
+        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(
+            onClick = {
+                Log.d("LFM_Screen_FileItem", "Clicked. SelectionMode: $isSelectionModeActive. File: ${fileEntry.name}")
+                onItemClick()
+            },
+            onLongClick = {
+                Log.d("LFM_Screen_FileItem", "LongClicked. Entering selection mode. File: ${fileEntry.name}")
+                onItemLongClick()
+            }
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 1.dp),
         colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            if (isSelectionModeActive) { Checkbox(checked = isSelected, onCheckedChange = { onItemClick() }, modifier = Modifier.padding(end = 8.dp)) }
+            if (isSelectionModeActive) { Checkbox(checked = isSelected, onCheckedChange = null, modifier = Modifier.padding(end = 8.dp)) }
             Icon(getIconForMimeType(fileEntry.mimeType), stringResource(R.string.lfm_file_icon_desc), modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -389,12 +552,18 @@ fun ItemDetailsSheetContent(details: ItemDetails?, onDismiss: () -> Unit) {
 fun DetailRow(label: String, value: String) { Row(modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth()) { Text(label, fontWeight = FontWeight.Bold, modifier = Modifier.width(130.dp)); Text(value, maxLines = 3, overflow = TextOverflow.Ellipsis) } }
 fun SortOption.toDisplayStringRes(): Int { return when (this) { SortOption.BY_NAME_ASC -> R.string.lfm_sort_name_asc; SortOption.BY_NAME_DESC -> R.string.lfm_sort_name_desc; SortOption.BY_DATE_ASC -> R.string.lfm_sort_date_asc; SortOption.BY_DATE_DESC -> R.string.lfm_sort_date_desc; SortOption.BY_SIZE_ASC -> R.string.lfm_sort_size_asc; SortOption.BY_SIZE_DESC -> R.string.lfm_sort_size_desc } }
 
-@Preview(showBackground = true, name = "File Manager - No Root")
+@Preview(showBackground = true, name = "File Manager - List View")
 @Composable
-fun LocalFileManagerScreenNoRootPreview() { /* ... same correct preview ... */ }
-@Preview(showBackground = true, name = "File Manager - Selection Mode")
+fun LocalFileManagerScreenListPreview() {
+    DataGrindsetTheme {
+        LocalFileManagerScreen(navController = rememberNavController(), rootUriIsSelected = true, currentDirectoryUri = Uri.parse("content://preview/current"), canNavigateUp = true, currentPath = "Preview > Current Folder", entries = listOf(DirectoryEntry.FolderEntry("folder1_id", "My Folder", Uri.parse("content://preview/folder1"), 2), DirectoryEntry.FileEntry("file1_id", "MyFile.txt", Uri.parse("content://preview/file1"), 1024, System.currentTimeMillis(), "text/plain")), fileProcessingStatusMap = emptyMap(), searchText = "", onSearchTextChanged = {}, currentSortOption = SortOption.BY_NAME_ASC, onSortOptionSelected = {}, onSelectRootDirectoryClicked = {}, onNavigateToFolder = {}, onNavigateUp = {}, navigateToAnalysisTarget = null, onDidNavigateToAnalysisScreen = {}, suggestExternalAppForFile = null, onDidAttemptToOpenWithExternalApp = {}, onPrepareFileForAnalysis = {}, isSelectionModeActive = false, selectedItems = emptySet(), selectedItemsCount = 0, onToggleItemSelected = {}, onEnterSelectionMode = {}, onExitSelectionMode = {}, onSelectAll = {}, onDeselectAll = {}, onShareSelected = {}, onCutSelected = {}, onCopySelected = {}, onArchiveSelected = {}, onOpenSelectedWithAnotherApp = {}, onShowItemDetails = {}, onDeleteSelectedItems = {}, itemDetailsToShow = null, onDismissItemDetails = {}, showCreateFolderDialog = false, onRequestShowCreateFolderDialog = {}, onDismissCreateFolderDialog = {}, onCreateFolder = {}, clipboardHasItems = false, onPaste = {}, onInitiateMoveExternal = {}, viewType = ViewType.LIST, onToggleViewType = {})
+    }
+}
+
+@Preview(showBackground = true, name = "File Manager - Grid View")
 @Composable
-fun LocalFileManagerScreenSelectionModePreview() { /* ... same correct preview ... */ }
-@Preview(showBackground = true, name = "File Manager - With Paste Button")
-@Composable
-fun LocalFileManagerScreenWithPastePreview() { /* ... same correct preview ... */ }
+fun LocalFileManagerScreenGridPreview() {
+    DataGrindsetTheme {
+        LocalFileManagerScreen(navController = rememberNavController(), rootUriIsSelected = true, currentDirectoryUri = Uri.parse("content://preview/current"), canNavigateUp = true, currentPath = "Preview > Current Folder", entries = listOf(DirectoryEntry.FolderEntry("folder1_id", "My Folder with a very long name that should wrap or ellipsis", Uri.parse("content://preview/folder1"), 2), DirectoryEntry.FileEntry("file1_id", "MyFileWithALongName.txt", Uri.parse("content://preview/file1"), 1024, System.currentTimeMillis(), "text/plain"), DirectoryEntry.FileEntry("file2_id", "Image.jpg", Uri.parse("content://preview/file2"), 204800, System.currentTimeMillis() - 100000, "image/jpeg")), fileProcessingStatusMap = emptyMap(), searchText = "", onSearchTextChanged = {}, currentSortOption = SortOption.BY_NAME_ASC, onSortOptionSelected = {}, onSelectRootDirectoryClicked = {}, onNavigateToFolder = {}, onNavigateUp = {}, navigateToAnalysisTarget = null, onDidNavigateToAnalysisScreen = {}, suggestExternalAppForFile = null, onDidAttemptToOpenWithExternalApp = {}, onPrepareFileForAnalysis = {}, isSelectionModeActive = false, selectedItems = emptySet(), selectedItemsCount = 0, onToggleItemSelected = {}, onEnterSelectionMode = {}, onExitSelectionMode = {}, onSelectAll = {}, onDeselectAll = {}, onShareSelected = {}, onCutSelected = {}, onCopySelected = {}, onArchiveSelected = {}, onOpenSelectedWithAnotherApp = {}, onShowItemDetails = {}, onDeleteSelectedItems = {}, itemDetailsToShow = null, onDismissItemDetails = {}, showCreateFolderDialog = false, onRequestShowCreateFolderDialog = {}, onDismissCreateFolderDialog = {}, onCreateFolder = {}, clipboardHasItems = false, onPaste = {}, onInitiateMoveExternal = {}, viewType = ViewType.GRID, onToggleViewType = {})
+    }
+}

@@ -26,7 +26,7 @@
     <string name="settings_contact_support_button">Contact Support</string>
     <string name="settings_no_email_app_toast">No email app found.</string>
 
-    <!-- LocalFileManagerScreen Titles -->
+    <!-- LocalFileManagerScreen Titles & Actions -->
     <string name="lfm_title_default">DataGrindset</string>
     <string name="lfm_search_placeholder">Search in current folder...</string>
     <string name="lfm_unsupported_file_title">Unsupported File Type</string>
@@ -57,6 +57,8 @@
     <string name="lfm_settings_icon_desc">Settings</string>
     <string name="lfm_processing_status_desc">Processing Status: %1$s</string>
     <string name="lfm_could_not_open_file_toast">Could not open file: %1$s</string>
+    <string name="lfm_view_toggle_list_desc">Switch to list view</string>
+    <string name="lfm_view_toggle_grid_desc">Switch to grid view</string>
 
     <!-- Selection Mode Strings -->
     <string name="lfm_selection_mode_cancel_desc">Cancel selection</string>
@@ -64,15 +66,15 @@
     <string name="lfm_selection_mode_select_all_desc">Select All</string>
     <string name="lfm_selection_mode_deselect_all_desc">Deselect All</string>
     <string name="lfm_bottom_bar_share_desc">Share</string>
-    <string name="lfm_bottom_bar_move_desc">Cut</string> <!-- Changed from Move to Cut for clipboard behavior -->
+    <string name="lfm_bottom_bar_move_desc">Cut</string>
     <string name="lfm_bottom_bar_copy_desc">Copy</string>
     <string name="lfm_bottom_bar_archive_desc">Archive</string>
     <string name="lfm_bottom_bar_more_options_desc">More actions</string>
     <string name="lfm_action_open_with_another_app">Open with...</string>
     <string name="lfm_action_details">Details</string>
     <string name="lfm_action_archive">Archive</string>
+    <string name="lfm_action_extract">Extract...</string>
     <string name="lfm_action_move_not_implemented">Move feature not yet implemented.</string>
-    <string name="lfm_action_archive_not_implemented">Archive feature not yet implemented.</string>
     <string name="lfm_action_share_no_items">No items selected to share.</string>
     <string name="lfm_action_share_error">Could not share items.</string>
     <string name="lfm_action_open_with_select_one_file">Please select a single file to open.</string>
@@ -95,7 +97,7 @@
     <string name="lfm_item_details_no_details">Details not available for selected items.</string>
     <string name="lfm_item_details_select_one_item">Select a single item to view details.</string>
 
-    <!-- NEW Strings for Create Folder, Copy/Cut/Paste, Move Here -->
+    <!-- Create Folder, Copy/Cut/Paste, Move Here Strings -->
     <string name="lfm_create_folder_menu">Create new folder</string>
     <string name="lfm_create_folder_dialog_title">Create New Folder</string>
     <string name="lfm_folder_name_label">Folder name</string>
@@ -115,6 +117,19 @@
     <string name="lfm_move_items_here_error_toast">Error moving items: %1$s</string>
     <string name="lfm_move_external_not_fully_implemented">Moving folders from external sources is not fully supported yet.</string>
 
+    <!-- Archive and Extract Strings -->
+    <string name="lfm_archive_name_dialog_title">Name Archive</string>
+    <string name="lfm_archive_name_label">Archive name (.zip)</string>
+    <string name="lfm_archive_success_toast">Archived \'%1$s\'</string>
+    <string name="lfm_archive_error_toast">Error archiving: %1$s</string>
+    <string name="lfm_extract_options_dialog_title">Extract Archive</string>
+    <string name="lfm_extract_to_current_folder_button">Extract here</string>
+    <string name="lfm_extract_to_another_folder_button">Extract to...</string>
+    <string name="lfm_extract_success_toast">Extracted \'%1$s\'</string>
+    <string name="lfm_extract_error_toast">Error extracting: %1$s</string>
+    <string name="lfm_select_target_folder_title">Select Target Folder for Extraction</string>
+    <string name="lfm_invalid_archive_name">Invalid archive name.</string>
+
     <!-- Localized Processing Summaries -->
     <string name="processing_summary_ready_to_open_txt">Ready for TXT analysis</string>
     <string name="processing_summary_ready_to_open_csv">Ready for CSV analysis</string>
@@ -124,7 +139,7 @@
     <string name="processing_summary_pending">Pending analysis...</string>
     <string name="processing_summary_failed">Analysis failed</string>
 
-    <!-- TxtFileAnalysisScreen (EXISTING) -->
+    <!-- TxtFileAnalysisScreen -->
     <string name="txt_analysis_title_edit">Edit: %1$s</string>
     <string name="txt_analysis_back_button_desc">Back</string>
     <string name="txt_analysis_close_search_desc">Close Search</string>

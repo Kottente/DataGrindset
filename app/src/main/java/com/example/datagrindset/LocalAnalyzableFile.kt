@@ -5,16 +5,7 @@ package com.example.datagrindset // Or your appropriate package
 import android.net.Uri // For storing the file's location
 
 // Enum to represent the processing status of a file
-enum class ProcessingStatus {
-    NONE,
-    PENDING,
-    PROCESSING,
-    SUCCESS,
-    FAILURE,
-    UNSUPPORTED,
-    ERROR,
-    FAILED
-}
+
 
 // Data class to represent a file selected by the user from local storage
 data class LocalAnalyzableFile(

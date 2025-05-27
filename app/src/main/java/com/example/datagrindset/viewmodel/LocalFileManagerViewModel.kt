@@ -3,8 +3,8 @@ package com.example.datagrindset.viewmodel
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
-// import android.provider.DocumentsContract // Keep if needed for specific operations
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.datagrindset.ProcessingStatus
 import com.example.datagrindset.R
 import com.example.datagrindset.ui.SortOption
+import com.example.datagrindset.ViewType // Import new Enum
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +30,7 @@ import java.io.IOException
 import java.text.Normalizer
 import java.util.Locale
 
+// DirectoryEntry and ItemDetails data classes remain the same
 sealed class DirectoryEntry(open val id: String, open val name: String, open val uri: Uri) {
     data class FileEntry(
         override val id: String,
@@ -62,6 +64,9 @@ data class ItemDetails(
 
 class LocalFileManagerViewModel(application: Application) : AndroidViewModel(application) {
     private val context: Context get() = getApplication()
+    private val sharedPrefsName = "LocalFileManagerPrefs"
+    private val viewTypePrefKey = "lfm_view_type"
+
     private val _rootTreeUri = MutableStateFlow<Uri?>(null)
     val rootTreeUri: StateFlow<Uri?> = _rootTreeUri.asStateFlow()
 
@@ -69,9 +74,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     val currentFolderUri: StateFlow<Uri?> = _currentFolderUri.asStateFlow()
 
     private val _directoryStack = MutableStateFlow<List<Uri>>(emptyList())
-
     private val _rawDirectoryEntries = MutableStateFlow<List<DirectoryEntry>>(emptyList())
-
     private val _searchText = MutableStateFlow("")
     val searchText: StateFlow<String> = _searchText.asStateFlow()
 
@@ -112,10 +115,14 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     val clipboardUris: StateFlow<Set<Uri>> = _clipboardUris.asStateFlow()
 
     private val _isCutOperation = MutableStateFlow(false)
-    // val isCutOperation: StateFlow<Boolean> = _isCutOperation.asStateFlow() // Not directly needed by UI for now
 
     private val _launchSystemFilePickerForMoveEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val launchSystemFilePickerForMoveEvent = _launchSystemFilePickerForMoveEvent.asSharedFlow()
+
+    // --- NEW for ViewType ---
+    private val _viewType = MutableStateFlow(ViewType.LIST)
+    val viewType: StateFlow<ViewType> = _viewType.asStateFlow()
+    // --- END NEW ---
 
     val directoryEntries: StateFlow<List<DirectoryEntry>> = combine(
         _rawDirectoryEntries, _searchText, _sortOption
@@ -154,18 +161,38 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
 
 
     init {
-        val sharedPrefs = application.getSharedPreferences("LocalFileManagerPrefs", Context.MODE_PRIVATE)
-        sharedPrefs.getString("root_uri", null)?.let { uriString ->
+        val prefs = application.getSharedPreferences(sharedPrefsName, Context.MODE_PRIVATE)
+        prefs.getString("root_uri", null)?.let { uriString ->
             val uri = Uri.parse(uriString)
             if (checkAndRequestPersistedPermissions(uri)) {
                 _rootTreeUri.value = uri
                 _currentFolderUri.value = uri
                 fetchDirectoryEntries(uri)
             } else {
-                sharedPrefs.edit().remove("root_uri").apply()
+                prefs.edit().remove("root_uri").apply()
             }
         }
+        // Load ViewType preference
+        val savedViewTypeName = prefs.getString(viewTypePrefKey, ViewType.LIST.name)
+        _viewType.value = try { ViewType.valueOf(savedViewTypeName ?: ViewType.LIST.name) } catch (e: IllegalArgumentException) { ViewType.LIST }
     }
+
+    // --- NEW for ViewType ---
+    fun toggleViewType() {
+        _viewType.value = if (_viewType.value == ViewType.LIST) ViewType.GRID else ViewType.LIST
+        // Save preference
+        getApplication<Application>().getSharedPreferences(sharedPrefsName, Context.MODE_PRIVATE).edit {
+            putString(viewTypePrefKey, _viewType.value.name)
+        }
+    }
+    // --- END NEW ---
+
+    private fun SharedPreferences.edit(commit: Boolean = false, action: SharedPreferences.Editor.() -> Unit) {
+        val editor = edit()
+        action(editor)
+        if (commit) editor.commit() else editor.apply()
+    }
+
 
     private fun checkAndRequestPersistedPermissions(uri: Uri): Boolean {
         val persistedUriPermissions = context.contentResolver.persistedUriPermissions
@@ -188,8 +215,9 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             fetchDirectoryEntries(uri)
             exitSelectionMode()
             _clipboardUris.value = emptySet()
-            getApplication<Application>().getSharedPreferences("LocalFileManagerPrefs", Context.MODE_PRIVATE)
-                .edit().putString("root_uri", uri.toString()).apply()
+            getApplication<Application>().getSharedPreferences(sharedPrefsName, Context.MODE_PRIVATE).edit {
+                putString("root_uri", uri.toString())
+            }
         } catch (e: SecurityException) { Log.e("LFMViewModel", "SecurityException setting root URI: $uri", e) }
     }
 
@@ -249,7 +277,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
 
     fun prepareFileForAnalysis(fileEntry: DirectoryEntry.FileEntry) {
         val mimeType = fileEntry.mimeType?.lowercase(Locale.ROOT)
-        val fileName = fileEntry.name.lowercase(Locale.ROOT) // Use original case for display if needed
+        val fileName = fileEntry.name.lowercase(Locale.ROOT)
         val isTxt = mimeType == "text/plain" || mimeType == "text/markdown" || fileName.endsWith(".txt", ignoreCase = true) || fileName.endsWith(".md", ignoreCase = true)
         val isCsv = mimeType == "text/csv" || mimeType == "application/csv" || fileName.endsWith(".csv", ignoreCase = true)
 
@@ -365,7 +393,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                         errorOccurred = true; continue
                     }
                     val sourceDoc = DocumentFile.fromSingleUri(context, sourceUri)
-                    if (sourceDoc == null) { // Corrected: Check after assignment
+                    if (sourceDoc == null) {
                         Log.w("LFMViewModel", "Skipping paste: Could not access sourceDoc for $sourceUri")
                         errorOccurred = true; continue
                     }
@@ -411,7 +439,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
 
             for (sourceUri in sourceUris) {
                 val sourceDoc = DocumentFile.fromSingleUri(context, sourceUri)
-                if (sourceDoc == null) { // Corrected: Check after assignment
+                if (sourceDoc == null) {
                     Log.w("LFMViewModel", "Skipping move: Could not access sourceDoc for $sourceUri")
                     errorOccurred = true; continue
                 }

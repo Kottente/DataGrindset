@@ -76,6 +76,22 @@
     <string name="lfm_move_items_here_error_toast">Ошибка перемещения элементов: %1$s</string>
     <string name="lfm_move_external_not_fully_implemented">Перемещение папок из внешних источников пока не полностью поддерживается.</string>
     <string name="lfm_bottom_bar_copy_desc">Копировать</string>
+    <string name="lfm_view_toggle_list_desc">Переключить на вид списком</string>
+    <string name="lfm_view_toggle_grid_desc">Переключить на вид сеткой</string>
+
+    <!-- Archive and Extract Strings -->
+    <string name="lfm_archive_name_dialog_title">Назовите архив</string>
+    <string name="lfm_archive_name_label">Имя архива (.zip)</string>
+    <string name="lfm_archive_success_toast">Заархивированный \'%1$s\'</string>
+    <string name="lfm_archive_error_toast">Ошбика при архивации: %1$s</string>
+    <string name="lfm_extract_options_dialog_title">Извлечь</string>
+    <string name="lfm_extract_to_current_folder_button">Извлечь здесь</string>
+    <string name="lfm_extract_to_another_folder_button">Извлечь в...</string>
+    <string name="lfm_extract_success_toast">Извлечено \'%1$s\'</string>
+    <string name="lfm_extract_error_toast">Ошибка при извлечении: %1$s</string>
+    <string name="lfm_select_target_folder_title">Выберите папку для извлечения</string>
+    <string name="lfm_invalid_archive_name">Неправильный формат имени для архива.</string>
+
     <!-- Selection Mode Strings -->
     <string name="lfm_selection_mode_cancel_desc">Отменить выделение</string>
     <string name="lfm_selection_mode_selected_count">Выбрано: %1$d</string>
@@ -88,8 +104,8 @@
     <string name="lfm_action_open_with_another_app">Открыть с помощью...</string>
     <string name="lfm_action_details">Сведения</string>
     <string name="lfm_action_archive">Архивировать</string>
+    <string name="lfm_action_extract">Извлечь...</string>
     <string name="lfm_action_move_not_implemented">Функция перемещения еще не реализована.</string>
-    <string name="lfm_action_archive_not_implemented">Функция архивации еще не реализована.</string>
     <string name="lfm_action_share_no_items">Нет выбранных элементов для отправки.</string>
     <string name="lfm_action_share_error">Не удалось поделиться элементами.</string>
     <string name="lfm_action_open_with_select_one_file">Пожалуйста, выберите один файл для открытия.</string>
