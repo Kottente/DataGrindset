@@ -11,7 +11,13 @@ object LocaleHelper {
 
     private const val SELECTED_LANGUAGE = "Locale.Helper.Selected.Language"
     private const val PREFS_NAME = "DataGrindsetPrefs"
+    private const val SELECTED_THEME = "Theme.Helper.Selected.Theme" // New Key
     private const val TAG = "LocaleHelper"
+
+
+    private fun getPreferences(context: Context): SharedPreferences {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
 
     // This method is called from Activity's attachBaseContext
     fun onAttach(context: Context): Context {
@@ -66,5 +72,14 @@ object LocaleHelper {
             Log.d(TAG, "updateResources (legacy): Updated resources for language: $language")
             return context
         }
+    }
+    // --- Theme ---
+    fun persistThemeOption(context: Context, themeOption: ThemeOption) {
+        getPreferences(context).edit().putString(SELECTED_THEME, themeOption.name).apply()
+    }
+
+    fun getThemeOption(context: Context): ThemeOption {
+        val themeName = getPreferences(context).getString(SELECTED_THEME, ThemeOption.SYSTEM.name)
+        return ThemeOption.fromString(themeName)
     }
 }

@@ -8,11 +8,13 @@ import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,22 +30,18 @@ import com.example.datagrindset.R // Import R class for resources
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import java.util.Locale
 import androidx.core.net.toUri
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.datagrindset.ThemeOption
 import com.example.datagrindset.viewmodel.AuthViewModel
+import com.example.datagrindset.viewmodel.SettingsViewModel
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+
 data class AppTheme(val name: String, val description: String)
 data class AppLanguage(val code: String, val displayNameResId: Int)
 
-val availableThemes = listOf(
-    AppTheme("Classic", "Orange/Black/Brown"),
-    AppTheme("Sky", "Blue/White/Black"),
-    AppTheme("Forest Lagoon", "Blue/Green/Brown"),
-    AppTheme("Noir & Blanc", "Black/White"),
-    AppTheme("Strawberry Milk", "Pink/White"),
-    AppTheme("Strawberry & Kiwi", "Pink/Lite Green")
-)
 
 // Updated to use the new string resource names I provided
 val availableLanguages = listOf(
@@ -58,7 +56,8 @@ fun SettingsScreen(
     navController: NavController,
     authViewModel: AuthViewModel,
     onLanguageSelected: (String) -> Unit,
-    currentLanguageCode: String
+    currentLanguageCode: String,
+    settingsViewModel: SettingsViewModel
 ) {
     val context = LocalContext.current
     val currentUser by authViewModel.currentUser.collectAsState()
@@ -66,8 +65,11 @@ fun SettingsScreen(
         Log.d("SettingsScreen", "Current user state: UID: ${currentUser?.uid}, Email: ${currentUser?.email}, DisplayName: ${currentUser?.displayName}")
     }
     var isUserLoggedIn by remember { mutableStateOf(false) }
-    var selectedTheme by remember { mutableStateOf(availableThemes.first()) }
-    var isThemeDropdownExpanded by remember { mutableStateOf(false) }
+
+    val availableThemesFromVM = settingsViewModel.availableThemes
+    val selectedThemeName by settingsViewModel.selectedThemeName.collectAsStateWithLifecycle()
+    var showLanguageDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
 
     val currentSelectedLanguageObject = remember(currentLanguageCode) {
         availableLanguages.find { it.code == currentLanguageCode }
@@ -182,35 +184,73 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             // --- Theme Selection Section ---
-            SettingsSectionTitle(title = stringResource(R.string.settings_theme_section_title))
-            Text("${stringResource(R.string.settings_current_theme_label)}: ${selectedTheme.name} (${selectedTheme.description})")
-            Spacer(modifier = Modifier.height(8.dp))
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = { isThemeDropdownExpanded = true },
-                    modifier = Modifier.fillMaxWidth()
+            Text(
+                stringResource(R.string.settings_theme_section_title),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp)
+            )
+            Card(modifier = Modifier.fillMaxWidth().clickable { showThemeDialog = true }) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(selectedTheme.name)
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = stringResource(R.string.settings_select_theme_desc))
-                }
-                DropdownMenu(
-                    expanded = isThemeDropdownExpanded,
-                    onDismissRequest = { isThemeDropdownExpanded = false },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    availableThemes.forEach { theme ->
-                        val themeAppliedText = stringResource(R.string.settings_theme_applied_toast, theme.name)
-                        DropdownMenuItem(
-                            text = { Text("${theme.name} (${theme.description})") },
-                            onClick = {
-                                selectedTheme = theme
-                                isThemeDropdownExpanded = false
-                                Toast.makeText(context, themeAppliedText, Toast.LENGTH_SHORT).show()
-                            }
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.ColorLens, contentDescription = stringResource(R.string.settings_select_theme_desc), modifier = Modifier.padding(end = 12.dp))
+                        Column {
+                            Text(stringResource(R.string.settings_current_theme_label), style = MaterialTheme.typography.bodyLarge)
+                            Text(selectedThemeName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                        }
                     }
+                    Icon(Icons.Filled.ArrowDropDown, contentDescription = stringResource(R.string.settings_select_theme_desc))
                 }
             }
+
+            if (showThemeDialog) {
+                AlertDialog(
+                    onDismissRequest = { showThemeDialog = false },
+                    title = { Text(stringResource(R.string.settings_select_theme_desc)) },
+                    text = {
+                        LazyColumn {
+                            items(availableThemesFromVM.size) { index ->
+                                val theme = availableThemesFromVM[index]
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            settingsViewModel.selectTheme(theme.name)
+                                            showThemeDialog = false
+                                            // Optional: Trigger activity recreate for immediate effect if needed,
+                                            // but dynamic theme application should work with StateFlow.
+                                            // (context as? Activity)?.recreate()
+                                        }
+                                        .padding(vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = theme.name == selectedThemeName,
+                                        onClick = {
+                                            settingsViewModel.selectTheme(theme.name)
+                                            showThemeDialog = false
+                                        }
+                                    )
+                                    Spacer(Modifier.width(16.dp))
+                                    Column {
+                                        Text(theme.name, style = MaterialTheme.typography.bodyLarge)
+                                        Text(theme.description, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showThemeDialog = false }) {
+                            Text(stringResource(R.string.lfm_cancel_button))
+                        }
+                    }
+                )
+            }
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             // --- Language Selection Section ---

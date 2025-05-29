@@ -8,12 +8,12 @@ import android.net.Uri
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.datagrindset.ProcessingStatus
 import com.example.datagrindset.R
 import com.example.datagrindset.ui.SortOption
 import com.example.datagrindset.ViewType
+import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,7 +28,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.File
 import java.io.IOException
 import java.text.Normalizer
 import java.util.Locale
@@ -50,9 +49,28 @@ sealed class DirectoryEntry(open val id: String, open val name: String, open val
         override val id: String,
         override val name: String,
         override val uri: Uri,
-        val childCount: Int
+        val childCount: Int,
+        val isSecuredUserDataRoot: Boolean = false // Flag for user's own .userData_UID folder
     ) : DirectoryEntry(id, name, uri)
 }
+data class BatchRenameDialogState(
+    val baseName: String = "",
+    val startNumber: String = "1",
+    val numDigits: String = "0", // 0 or empty means no padding
+    val keepExtension: Boolean = true,
+    val itemsToRenameCount: Int = 0 // To show in dialog title
+)
+
+/**
+ * Options passed to the actual renaming function after dialog confirmation.
+ */
+data class PerformBatchRenameOptions(
+    val baseName: String,
+    val startNumber: Int,
+    val numDigits: Int,
+    val keepOriginalExtension: Boolean
+)
+
 
 data class ItemDetails(
     val name: String,
@@ -64,7 +82,8 @@ data class ItemDetails(
     val childrenCount: Int?, // Null for files
     val isReadable: Boolean,
     val isWritable: Boolean,
-    val isHidden: Boolean
+    val isHidden: Boolean,
+    val isSecured: Boolean = false
 )
 
 object MimeTypeMapHelper {
@@ -78,18 +97,31 @@ object MimeTypeMapHelper {
             "png" -> "image/png"
             "gif" -> "image/gif"
             "zip" -> "application/zip"
-            // Add more common types as needed
-            else -> "application/octet-stream" // Default
+            else -> "application/octet-stream"
         }
     }
 }
 
-class LocalFileManagerViewModel(application: Application) : AndroidViewModel(application) {
+open class LocalFileManagerViewModel(
+    application: Application,
+    private val currentUserState: StateFlow<FirebaseUser?>
+) : AndroidViewModel(application) {
+
     private val context: Context get() = getApplication()
     private val sharedPrefsName = "LocalFileManagerPrefs"
     private val viewTypePrefKey = "lfm_view_type"
     private val rootUriPrefKey = "root_uri"
     private val TAG = "LFMViewModel"
+
+    companion object {
+        const val USER_DATA_ROOT_PREFIX = ".userData_"
+        const val MY_SECURED_SPACE_DISPLAY_NAME = "My Secured Space"
+    }
+
+    private val currentUserId: StateFlow<String?> = currentUserState
+        .map { it?.uid }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, currentUserState.value?.uid)
+
 
     private val _rootTreeUri = MutableStateFlow<Uri?>(null)
     val rootTreeUri: StateFlow<Uri?> = _rootTreeUri.asStateFlow()
@@ -99,6 +131,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
 
     private val _directoryStack = MutableStateFlow<List<Uri>>(emptyList())
     private val _rawDirectoryEntries = MutableStateFlow<List<DirectoryEntry>>(emptyList())
+
     private val _searchText = MutableStateFlow("")
     val searchText: StateFlow<String> = _searchText.asStateFlow()
 
@@ -157,9 +190,13 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     private val _launchDirectoryPickerForExtractionEvent = MutableSharedFlow<DirectoryEntry.FileEntry>(extraBufferCapacity = 1)
     val launchDirectoryPickerForExtractionEvent = _launchDirectoryPickerForExtractionEvent.asSharedFlow()
 
+    private val _batchRenameDialogState = MutableStateFlow<BatchRenameDialogState?>(null)
+    val batchRenameDialogState: StateFlow<BatchRenameDialogState?> = _batchRenameDialogState.asStateFlow()
+
+
     val directoryEntries: StateFlow<List<DirectoryEntry>> = combine(
-        _rawDirectoryEntries, _searchText, _sortOption
-    ) { entries, text, sortOpt ->
+        _rawDirectoryEntries, _searchText, _sortOption, currentUserId
+    ) { entries, text, sortOpt, _ ->
         val filteredEntries = if (text.isBlank()) {
             entries
         } else {
@@ -177,14 +214,35 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val currentPathDisplay: StateFlow<String> = combine(
-        _rootTreeUri, _directoryStack
-    ) { rootUri, stack ->
+        _rootTreeUri, _directoryStack, currentUserId
+    ) { rootUri, stack, uid ->
         if (rootUri == null) return@combine context.getString(R.string.lfm_select_root_prompt)
         val rootDocFile = DocumentFile.fromTreeUri(context, rootUri)
         val rootName = rootDocFile?.name ?: "Root"
-        val pathSegments = stack.mapNotNull { uri -> DocumentFile.fromTreeUri(context, uri)?.name }
+
+        val pathSegments = mutableListOf<String>()
+        var isInsideSecuredSpace = false
+
+        for (uriSegment in stack) {
+            // For stack URIs representing directories, fromTreeUri is appropriate
+            val segmentDocFile = DocumentFile.fromTreeUri(context, uriSegment)
+            val segmentName = segmentDocFile?.name
+            if (segmentName != null) {
+                if (uid != null && segmentName == "$USER_DATA_ROOT_PREFIX$uid") {
+                    pathSegments.add(MY_SECURED_SPACE_DISPLAY_NAME)
+                    isInsideSecuredSpace = true
+                } else if (segmentName.startsWith(USER_DATA_ROOT_PREFIX) && !isInsideSecuredSpace) {
+                    pathSegments.add("Secured Space (Other)")
+                    isInsideSecuredSpace = true
+                }
+                else {
+                    pathSegments.add(segmentName)
+                }
+            }
+        }
         (listOf(rootName) + pathSegments).joinToString(" > ")
     }.stateIn(viewModelScope, SharingStarted.Lazily, context.getString(R.string.lfm_select_root_prompt))
+
 
     val canNavigateUp: StateFlow<Boolean> = _directoryStack.combine(_rootTreeUri) { stack, root ->
         stack.isNotEmpty() && root != null
@@ -197,14 +255,94 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             if (checkAndRequestPersistedPermissions(uri)) {
                 _rootTreeUri.value = uri
                 _currentFolderUri.value = uri
-                fetchDirectoryEntries(uri)
             } else {
                 prefs.edit().remove(rootUriPrefKey).apply()
             }
         }
         val savedViewTypeName = prefs.getString(viewTypePrefKey, ViewType.LIST.name)
         _viewType.value = try { ViewType.valueOf(savedViewTypeName ?: ViewType.LIST.name) } catch (e: IllegalArgumentException) { ViewType.LIST }
+
+        viewModelScope.launch {
+            currentUserId.collect { _ ->
+                _currentFolderUri.value?.let { currentUri ->
+                    Log.d(TAG, "User ID changed or initial load with user, refetching for $currentUri")
+                    fetchDirectoryEntries(currentUri)
+                } ?: _rootTreeUri.value?.let { rootUri ->
+                    Log.d(TAG, "User ID changed or initial load with user, refetching for root $rootUri")
+                    _currentFolderUri.value = rootUri
+                    fetchDirectoryEntries(rootUri)
+                }
+            }
+        }
     }
+
+    private suspend fun ensureAndGetUserDataRoot(): DocumentFile? = withContext(Dispatchers.IO) {
+        val uid = currentUserId.value ?: run {
+            _toastMessageEvent.tryEmit(context.getString(R.string.lfm_login_required_for_secured_folder))
+            return@withContext null
+        }
+        val appRootUri = _rootTreeUri.value ?: run {
+            _toastMessageEvent.tryEmit(context.getString(R.string.lfm_select_root_directory_first))
+            return@withContext null
+        }
+        val appRootDoc = DocumentFile.fromTreeUri(context, appRootUri) ?: run {
+            _toastMessageEvent.tryEmit(context.getString(R.string.lfm_invalid_root_directory))
+            return@withContext null
+        }
+
+        val userSecuredFolderName = "$USER_DATA_ROOT_PREFIX$uid"
+        var userDataRoot = appRootDoc.findFile(userSecuredFolderName)
+        if (userDataRoot == null) {
+            Log.d(TAG, "User data root '$userSecuredFolderName' not found, attempting to create.")
+            userDataRoot = appRootDoc.createDirectory(userSecuredFolderName)
+            if (userDataRoot == null) {
+                Log.e(TAG, "Failed to create user data root '$userSecuredFolderName'")
+                _toastMessageEvent.tryEmit(context.getString(R.string.lfm_error_creating_secured_space))
+                return@withContext null
+            }
+            Log.d(TAG, "Successfully created user data root: ${userDataRoot.uri}")
+        } else if (!userDataRoot.isDirectory) {
+            Log.e(TAG, "User data root path '$userSecuredFolderName' exists but is not a directory.")
+            _toastMessageEvent.tryEmit(context.getString(R.string.lfm_error_secured_space_not_folder))
+            return@withContext null
+        }
+        userDataRoot
+    }
+
+    fun navigateToMySecuredSpace() {
+        viewModelScope.launch {
+            val uid = currentUserId.value
+            if (uid == null) {
+                _toastMessageEvent.tryEmit(context.getString(R.string.lfm_login_required_for_secured_folder))
+                return@launch
+            }
+            if (_rootTreeUri.value == null) {
+                _toastMessageEvent.tryEmit(context.getString(R.string.lfm_select_root_directory_first))
+                requestSelectRootDirectory()
+                return@launch
+            }
+
+            val userDataRootDocFile = ensureAndGetUserDataRoot()
+            userDataRootDocFile?.let {
+                val userSecuredRootEntry = DirectoryEntry.FolderEntry(
+                    id = it.uri.toString() + "_folder_secured_root",
+                    name = MY_SECURED_SPACE_DISPLAY_NAME,
+                    uri = it.uri,
+                    childCount = it.listFiles().count { f -> f.name != null },
+                    isSecuredUserDataRoot = true
+                )
+                _directoryStack.value = emptyList()
+                _currentFolderUri.value = _rootTreeUri.value
+
+                _directoryStack.value = listOf(userSecuredRootEntry.uri)
+                _currentFolderUri.value = userSecuredRootEntry.uri
+                fetchDirectoryEntries(userSecuredRootEntry.uri)
+                exitSelectionMode()
+                Log.d(TAG, "Navigated to user's secured space: ${userSecuredRootEntry.uri}")
+            }
+        }
+    }
+
 
     fun toggleViewType() {
         _viewType.value = if (_viewType.value == ViewType.LIST) ViewType.GRID else ViewType.LIST
@@ -292,11 +430,43 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                     Log.w(TAG, "Cannot fetch entries: $folderUri is not a valid directory.")
                     _rawDirectoryEntries.value = emptyList(); return@launch
                 }
+
                 val entries = mutableListOf<DirectoryEntry>()
+                val currentUid = currentUserId.value
+                val isAppRootFolder = folderUri == _rootTreeUri.value
+
                 documentFile.listFiles().forEach { file ->
-                    if (file.name == null) return@forEach
-                    if (file.isDirectory) { entries.add(DirectoryEntry.FolderEntry(id = file.uri.toString() + "_folder", name = file.name!!, uri = file.uri, childCount = file.listFiles().count { it.name != null })) }
-                    else { entries.add(DirectoryEntry.FileEntry(id = file.uri.toString() + "_file", name = file.name!!, uri = file.uri, size = file.length(), dateModified = file.lastModified(), mimeType = file.type ?: context.contentResolver.getType(file.uri))) }
+                    val fileName = file.name ?: return@forEach
+
+                    if (isAppRootFolder && fileName.startsWith(USER_DATA_ROOT_PREFIX)) {
+                        if (currentUid != null && fileName == "$USER_DATA_ROOT_PREFIX$currentUid") {
+                            entries.add(DirectoryEntry.FolderEntry(
+                                id = file.uri.toString() + "_folder_secured_root",
+                                name = MY_SECURED_SPACE_DISPLAY_NAME,
+                                uri = file.uri,
+                                childCount = file.listFiles().count { it.name != null },
+                                isSecuredUserDataRoot = true
+                            ))
+                        } else {
+                            Log.d(TAG, "Hiding user data folder: $fileName (current UID: $currentUid)")
+                        }
+                    } else if (file.isDirectory) {
+                        entries.add(DirectoryEntry.FolderEntry(
+                            id = file.uri.toString() + "_folder",
+                            name = fileName,
+                            uri = file.uri,
+                            childCount = file.listFiles().count { it.name != null }
+                        ))
+                    } else {
+                        entries.add(DirectoryEntry.FileEntry(
+                            id = file.uri.toString() + "_file",
+                            name = fileName,
+                            uri = file.uri,
+                            size = file.length(),
+                            dateModified = file.lastModified(),
+                            mimeType = file.type ?: context.contentResolver.getType(file.uri)
+                        ))
+                    }
                 }
                 withContext(Dispatchers.Main) { _rawDirectoryEntries.value = entries }
             } catch (e: Exception) {
@@ -305,6 +475,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             }
         }
     }
+
 
     fun prepareFileForAnalysis(fileEntry: DirectoryEntry.FileEntry) {
         Log.d(TAG, "Preparing file for analysis: ${fileEntry.name}, URI: ${fileEntry.uri}")
@@ -336,7 +507,18 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         viewModelScope.launch(Dispatchers.IO) {
             _selectedItems.value.forEach { entry ->
                 try {
-                    DocumentFile.fromTreeUri(context, entry.uri)?.delete()
+                    val docFile = if (entry is DirectoryEntry.FolderEntry && entry.isSecuredUserDataRoot) {
+                        // For "My Secured Space", we need to get the actual DocumentFile using its real name
+                        val uid = currentUserId.value
+                        if (uid != null) {
+                            val appRootUri = _rootTreeUri.value
+                            val appRootDoc = appRootUri?.let { DocumentFile.fromTreeUri(context, it) }
+                            appRootDoc?.findFile("$USER_DATA_ROOT_PREFIX$uid")
+                        } else null
+                    } else {
+                        DocumentFile.fromTreeUri(context, entry.uri)
+                    }
+                    docFile?.delete()
                     _fileProcessingStatusMap.value -= entry.uri
                 } catch (e: Exception) { Log.e(TAG, "Error deleting ${entry.uri}", e) }
             }
@@ -344,6 +526,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             withContext(Dispatchers.Main) { exitSelectionMode() }
         }
     }
+
 
     fun didNavigateToAnalysisScreen() {
         Log.d(TAG, "didNavigateToAnalysisScreen called. Resetting navigateToAnalysisTarget.")
@@ -373,7 +556,21 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     fun deselectAll() { _selectedItems.value = emptySet() }
 
     fun shareSelectedItems() {
-        val selectedUrisToShare = _selectedItems.value.map { it.uri }.toList()
+        val selectedUrisToShare = _selectedItems.value.map {
+            if (it is DirectoryEntry.FolderEntry && it.isSecuredUserDataRoot) {
+                // Need to get the actual URI if "My Secured Space" is selected
+                val uid = currentUserId.value
+                if (uid != null) {
+                    val appRootUri = _rootTreeUri.value
+                    val appRootDoc = appRootUri?.let { DocumentFile.fromTreeUri(context, it) }
+                    appRootDoc?.findFile("$USER_DATA_ROOT_PREFIX$uid")?.uri
+                } else null
+            } else {
+                it.uri
+            }
+        }.filterNotNull().toList()
+
+
         if (selectedUrisToShare.isEmpty()) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_action_share_no_items)); return }
         val shareIntent = Intent().apply {
             action = if (selectedUrisToShare.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE
@@ -392,6 +589,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         exitSelectionMode()
     }
 
+
     fun openSelectedFileWithAnotherApp() {
         if (_selectedItems.value.size == 1 && _selectedItems.value.first() is DirectoryEntry.FileEntry) {
             val fileEntry = _selectedItems.value.first() as DirectoryEntry.FileEntry
@@ -403,15 +601,19 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
         exitSelectionMode()
     }
 
+
     fun getItemDetailsForSelected() {
         if (_selectedItems.value.size == 1) {
             val entry = _selectedItems.value.first()
-            val docFile = DocumentFile.fromTreeUri(context, entry.uri)
+            val docFile = DocumentFile.fromTreeUri(context, entry.uri) // This might be an issue for "My Secured Space" as its URI is the actual one
 
             if (docFile != null) {
+                val isUserSecuredRoot = entry is DirectoryEntry.FolderEntry && entry.isSecuredUserDataRoot
+                val actualName = if(isUserSecuredRoot) "$USER_DATA_ROOT_PREFIX${currentUserId.value}" else entry.name
+
                 _showItemDetailsDialog.value = ItemDetails(
                     name = entry.name,
-                    path = entry.uri.path ?: entry.uri.toString(),
+                    path = docFile.uri.path ?: docFile.uri.toString(),
                     type = if (entry is DirectoryEntry.FolderEntry) context.getString(R.string.lfm_item_details_folder) else context.getString(R.string.lfm_item_details_file),
                     size = if (entry is DirectoryEntry.FileEntry && docFile.isFile) docFile.length() else null,
                     dateModified = if(docFile.lastModified() > 0) docFile.lastModified() else null,
@@ -419,28 +621,43 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                     childrenCount = if (entry is DirectoryEntry.FolderEntry && docFile.isDirectory) entry.childCount else null,
                     isReadable = docFile.canRead(),
                     isWritable = docFile.canWrite(),
-                    isHidden = entry.name.startsWith(".")
+                    isHidden = actualName.startsWith("."),
+                    isSecured = isUserSecuredRoot || (currentUserId.value != null && docFile.uri.toString().contains("$USER_DATA_ROOT_PREFIX${currentUserId.value}"))
                 )
             } else {
                 Log.w(TAG, "Could not get DocumentFile for details: ${entry.uri}")
-                _showItemDetailsDialog.value = ItemDetails(context.getString(R.string.lfm_item_details_no_details), "", "", null,null,null,null,false,false,false)
+                _showItemDetailsDialog.value = ItemDetails(context.getString(R.string.lfm_item_details_no_details), "", "", null,null,null,null,false,false,false, false)
             }
         } else {
-            _showItemDetailsDialog.value = ItemDetails(context.getString(R.string.lfm_item_details_select_one_item), "", "", null,null,null,null,false,false,false)
+            _showItemDetailsDialog.value = ItemDetails(context.getString(R.string.lfm_item_details_select_one_item), "", "", null,null,null,null,false,false,false, false)
         }
     }
+
 
     fun dismissItemDetailsDialog() { _showItemDetailsDialog.value = null }
     fun requestShowCreateFolderDialog() { _showCreateFolderDialog.value = true }
     fun dismissCreateFolderDialog() { _showCreateFolderDialog.value = false }
 
-    fun createFolderInCurrentDirectory(folderName: String) {
+    fun createFolderInCurrentDirectory(folderNameInput: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val folderName = folderNameInput.trim()
             val parentUri = _currentFolderUri.value ?: _rootTreeUri.value
             if (parentUri == null) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_error_creating_folder_toast, "No current directory selected")); return@launch }
             if (folderName.isBlank()) { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_empty_folder_name_toast)); return@launch }
+
             val parentDocFile = DocumentFile.fromTreeUri(context, parentUri)
             try {
+                if (folderName.startsWith(USER_DATA_ROOT_PREFIX)) {
+                    val currentUid = currentUserId.value
+                    // Check if trying to create a secured folder manually at the app root
+                    if (parentUri == _rootTreeUri.value && folderName != "$USER_DATA_ROOT_PREFIX$currentUid") {
+                        _toastMessageEvent.tryEmit(context.getString(R.string.lfm_error_manual_secured_folder_creation))
+                        return@launch
+                    }
+                    // Allow creation if inside user's own secured space (parentUri is already the secured space)
+                    // Or if it's the auto-creation of the user's root, which is handled by ensureAndGetUserDataRoot
+                }
+
                 val newFolder = parentDocFile?.createDirectory(folderName)
                 if (newFolder != null && newFolder.exists()) {
                     _toastMessageEvent.tryEmit(context.getString(R.string.lfm_folder_created_toast, folderName))
@@ -454,6 +671,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             withContext(Dispatchers.Main) { dismissCreateFolderDialog() }
         }
     }
+
 
     fun copySelectedToClipboard() {
         if (_selectedItems.value.isEmpty()) return
@@ -486,10 +704,24 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                         Log.w(TAG, "Skipping paste: source $sourceUri is same or parent of target $targetDirUri")
                         errorOccurred = true; continue
                     }
-                    val sourceDoc = DocumentFile.fromTreeUri(context, sourceUri)
+                    // For source URIs from clipboard, they might be single or tree.
+                    // If it's a directory, fromTreeUri is fine. If a file, fromSingleUri.
+                    // DocumentFile.fromTreeUri can sometimes work for single files if permissions are broad.
+                    // However, to be safe, if we know it's a file, fromSingleUri is better.
+                    // Since clipboardUris are just URIs, we don't know their type yet.
+                    // The copyDocument function will handle this.
+                    val sourceDoc = DocumentFile.fromTreeUri(context, sourceUri) // Or fromSingleUri if known to be file
                     if (sourceDoc == null) {
                         Log.w(TAG, "Skipping paste: Could not access sourceDoc for $sourceUri")
                         errorOccurred = true; continue
+                    }
+                    val sourceName = sourceDoc.name
+                    if (sourceName != null && sourceName.startsWith(USER_DATA_ROOT_PREFIX)) {
+                        val currentUid = currentUserId.value
+                        if (currentUid == null || sourceName != "$USER_DATA_ROOT_PREFIX$currentUid") {
+                            Log.w(TAG, "Skipping paste of other user's secured folder: $sourceName")
+                            errorOccurred = true; continue
+                        }
                     }
 
                     if (copyDocument(sourceDoc, targetDirDoc)) {
@@ -511,6 +743,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             }
         }
     }
+
 
     private fun isUriDescendant(childUri: Uri, parentUri: Uri): Boolean = childUri.toString().startsWith(parentUri.toString()) && childUri != parentUri
 
@@ -541,26 +774,41 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             val targetDirDoc = DocumentFile.fromTreeUri(context, targetDirUri) ?: run { _toastMessageEvent.tryEmit(context.getString(R.string.lfm_move_items_here_error_toast, "Invalid destination directory")); return@launch }
 
             for (sourceUri in sourceUris) {
-                val sourceDoc = DocumentFile.fromTreeUri(context, sourceUri)
+                // Use fromSingleUri for URIs obtained from OpenMultipleDocuments
+                val sourceDoc = DocumentFile.fromSingleUri(context, sourceUri)
                 if (sourceDoc == null) {
-                    Log.w(TAG, "Skipping move: Could not access sourceDoc for $sourceUri")
+                    Log.w(TAG, "Skipping move: Could not access sourceDoc for $sourceUri (using fromSingleUri)")
                     errorOccurred = true; continue
                 }
 
-                if (sourceUri == targetDirUri || sourceDoc.isDirectory && isUriDescendant(targetDirUri, sourceUri)) {
+                if (sourceUri == targetDirUri || (sourceDoc.isDirectory && isUriDescendant(targetDirUri, sourceUri))) {
                     Log.w(TAG, "Cannot move folder into itself or its child for $sourceUri")
                     errorOccurred = true; continue
                 }
+                val sourceName = sourceDoc.name
+                if (sourceName != null && sourceName.startsWith(USER_DATA_ROOT_PREFIX)) {
+                    val currentUid = currentUserId.value
+                    if (currentUid == null || sourceName != "$USER_DATA_ROOT_PREFIX$currentUid") {
+                        Log.w(TAG, "Skipping move of other user's secured folder: $sourceName")
+                        errorOccurred = true; continue
+                    }
+                }
+
                 try {
                     if (copyDocument(sourceDoc, targetDirDoc)) { if (sourceDoc.delete()) successCount++ else { Log.w(TAG, "Copied ${sourceDoc.name} but failed to delete original."); errorOccurred = true } }
                     else { Log.e(TAG, "Failed to copy ${sourceDoc.name} for move operation."); errorOccurred = true }
                 } catch (e: Exception) { Log.e(TAG, "Error moving ${sourceDoc.name}: ${e.message}", e); errorOccurred = true }
             }
             if (successCount > 0) _toastMessageEvent.tryEmit(context.getString(R.string.lfm_move_items_here_success_toast, successCount))
-            if (errorOccurred) _toastMessageEvent.tryEmit(context.getString(R.string.lfm_move_items_here_error_toast, "Some items failed"))
+            if (errorOccurred && successCount > 0 && successCount < sourceUris.size) { // Show partial failure only if some succeeded
+                _toastMessageEvent.tryEmit(context.getString(R.string.lfm_move_items_here_error_toast, "Some items failed to move"))
+            } else if (errorOccurred && successCount == 0) {
+                _toastMessageEvent.tryEmit(context.getString(R.string.lfm_move_items_here_error_toast, "All items failed to move"))
+            }
             fetchDirectoryEntries(targetDirUri)
         }
     }
+
 
     fun requestArchiveSelectedItems() {
         if (_selectedItems.value.isNotEmpty()) {
@@ -601,8 +849,15 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                 context.contentResolver.openOutputStream(archiveDocFile.uri)?.use { fos ->
                     ZipOutputStream(BufferedOutputStream(fos)).use { zos ->
                         itemsToArchive.forEach { entry ->
-                            val docFile = DocumentFile.fromTreeUri(context, entry.uri)
-                            docFile?.let { addDocFileToZip(it, entry.name, zos, "") }
+                            val docFile = DocumentFile.fromTreeUri(context, entry.uri) // Actual URI
+                            docFile?.let {
+                                val actualNameForZip = if (entry is DirectoryEntry.FolderEntry && entry.isSecuredUserDataRoot) {
+                                    "$USER_DATA_ROOT_PREFIX${currentUserId.value}"
+                                } else {
+                                    entry.name
+                                }
+                                addDocFileToZip(it, actualNameForZip, zos, "")
+                            }
                         }
                     }
                 } ?: throw IOException("Could not open output stream for archive file.")
@@ -616,6 +871,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
             }
         }
     }
+
 
     private fun addDocFileToZip(docFile: DocumentFile, entryName: String, zos: ZipOutputStream, basePathInZip: String) {
         val fullPathInZip = if (basePathInZip.isEmpty()) entryName else "$basePathInZip/$entryName"
@@ -654,11 +910,13 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
     fun extractArchiveToCurrentFolder() {
         val zipFileEntry = _showExtractOptionsDialog.value ?: return
         val targetDirUri = _currentFolderUri.value ?: _rootTreeUri.value ?: return
+        dismissExtractOptionsDialog() // Dismiss before starting long operation
         performExtraction(zipFileEntry, targetDirUri)
     }
 
     fun initiateExtractArchiveToAnotherFolder() {
         val zipFileEntry = _showExtractOptionsDialog.value ?: return
+        dismissExtractOptionsDialog() // Dismiss before launching picker
         _launchDirectoryPickerForExtractionEvent.tryEmit(zipFileEntry)
     }
 
@@ -672,6 +930,14 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                 val targetParentDocFile = DocumentFile.fromTreeUri(context, targetParentDirUri)
                 if (targetParentDocFile == null || !targetParentDocFile.isDirectory || !targetParentDocFile.canWrite()) {
                     _toastMessageEvent.tryEmit(context.getString(R.string.lfm_extract_error_toast, "Invalid or non-writable target directory")); return@launch
+                }
+
+                val currentUid = currentUserId.value
+                val targetPathString = targetParentDirUri.toString()
+                if (targetPathString.contains(USER_DATA_ROOT_PREFIX)) {
+                    if (currentUid == null || !targetPathString.contains("$USER_DATA_ROOT_PREFIX$currentUid")) {
+                        _toastMessageEvent.tryEmit(context.getString(R.string.lfm_extract_error_toast, "Cannot extract into this secured location.")); return@launch
+                    }
                 }
 
                 context.contentResolver.openInputStream(zipFileEntry.uri)?.use { fis ->
@@ -712,7 +978,7 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                                 val existingFile = currentTargetDirDoc.findFile(finalEntryName)
                                 if (existingFile != null && existingFile.isFile) {
                                     Log.w(TAG, "File $finalEntryName already exists in ${currentTargetDirDoc.uri}, overwriting.")
-                                    existingFile.delete()
+                                    existingFile.delete() // Delete to overwrite
                                 }
                                 val newFileDoc = currentTargetDirDoc.createFile(
                                     MimeTypeMapHelper.getMimeTypeFromExtension(finalEntryName),
@@ -733,13 +999,125 @@ class LocalFileManagerViewModel(application: Application) : AndroidViewModel(app
                 } ?: Log.e(TAG, "Could not open input stream for zip file: ${zipFileEntry.uri}")
 
                 _toastMessageEvent.tryEmit(context.getString(R.string.lfm_extract_success_toast, zipFileEntry.name))
-                fetchDirectoryEntries(targetParentDirUri)
+                fetchDirectoryEntries(targetParentDirUri) // Refresh the directory where extraction happened
             } catch (e: Exception) {
                 Log.e(TAG, "Error extracting archive '${zipFileEntry.name}' to '$targetParentDirUri'", e)
                 _toastMessageEvent.tryEmit(context.getString(R.string.lfm_extract_error_toast, e.localizedMessage ?: "Unknown error"))
             } finally {
-                exitSelectionMode()
+                exitSelectionMode() // Ensure selection mode is exited
             }
         }
     }
-}
+    fun requestBatchRename() {
+        val filesToRename = _selectedItems.value.filterIsInstance<DirectoryEntry.FileEntry>()
+        if (filesToRename.isEmpty()) {
+            _toastMessageEvent.tryEmit(context.getString(R.string.lfm_batch_rename_no_files_selected))
+            return
+        }
+        _batchRenameDialogState.value = BatchRenameDialogState(itemsToRenameCount = filesToRename.size)
+    }
+
+    fun dismissBatchRenameDialog() {
+        _batchRenameDialogState.value = null
+    }
+
+    fun performBatchRename(options: PerformBatchRenameOptions) {
+        val itemsToRename = _selectedItems.value.filterIsInstance<DirectoryEntry.FileEntry>()
+            .sortedBy { it.name } // Sort for consistent numbering
+
+        if (itemsToRename.isEmpty()) {
+            _toastMessageEvent.tryEmit(context.getString(R.string.lfm_batch_rename_no_files_selected))
+            dismissBatchRenameDialog()
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            var successCount = 0
+            var failureCount = 0
+            val parentUri = _currentFolderUri.value ?: _rootTreeUri.value ?: run {
+                _toastMessageEvent.tryEmit(context.getString(R.string.lfm_batch_rename_error_no_parent_dir))
+                return@launch
+            }
+            val parentDocFile = DocumentFile.fromTreeUri(context, parentUri) ?: run {
+                _toastMessageEvent.tryEmit(context.getString(R.string.lfm_batch_rename_error_parent_inaccessible))
+                return@launch
+            }
+
+            itemsToRename.forEachIndexed { index, fileEntry ->
+                val originalDocFile = DocumentFile.fromTreeUri(context, fileEntry.uri)
+                if (originalDocFile == null || !originalDocFile.isFile) {
+                    Log.w(TAG, "Batch rename: Skipping non-existent or non-file entry ${fileEntry.name}")
+                    failureCount++
+                    return@forEachIndexed
+                }
+
+                val sequenceNumber = options.startNumber + index
+                val numberString = if (options.numDigits > 0) {
+                    sequenceNumber.toString().padStart(options.numDigits, '0')
+                } else {
+                    sequenceNumber.toString()
+                }
+
+                val originalNameWithoutExtension = fileEntry.name.substringBeforeLast('.', fileEntry.name)
+                val originalExtension = if (fileEntry.name.contains('.')) "." + fileEntry.name.substringAfterLast('.') else ""
+
+                val newNameWithoutExt = if (options.baseName.contains("{#}") || options.baseName.contains("{orig}")) {
+                    options.baseName.replace("{#}", numberString)
+                        .replace("{orig}", originalNameWithoutExtension)
+                } else {
+                    options.baseName + numberString
+                }
+
+
+                val finalNewName = if (options.keepOriginalExtension) {
+                    newNameWithoutExt + originalExtension
+                } else {
+                    newNameWithoutExt // No extension or user needs to add it in baseName
+                }
+
+                if (finalNewName == fileEntry.name) { // No actual change
+                    Log.i(TAG, "Batch rename: Skipping ${fileEntry.name} as new name is identical.")
+                    // Consider it a success if no change needed, or a skip. For now, let's count as success.
+                    successCount++
+                    return@forEachIndexed
+                }
+
+                if (parentDocFile.findFile(finalNewName) != null) {
+                    Log.w(TAG, "Batch rename: File with new name '$finalNewName' already exists. Skipping ${fileEntry.name}.")
+                    _toastMessageEvent.tryEmit(context.getString(R.string.lfm_batch_rename_error_name_exists, finalNewName, fileEntry.name))
+                    failureCount++
+                } else {
+                    try {
+                        if (originalDocFile.renameTo(finalNewName)) {
+                            Log.i(TAG, "Batch rename: Renamed ${fileEntry.name} to $finalNewName")
+                            successCount++
+                        } else {
+                            Log.e(TAG, "Batch rename: Failed to rename ${fileEntry.name} to $finalNewName (renameTo returned false)")
+                            _toastMessageEvent.tryEmit(context.getString(R.string.lfm_batch_rename_error_single, fileEntry.name))
+                            failureCount++
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Batch rename: Error renaming ${fileEntry.name} to $finalNewName", e)
+                        _toastMessageEvent.tryEmit(context.getString(R.string.lfm_batch_rename_error_single_exception, fileEntry.name, e.localizedMessage))
+                        failureCount++
+                    }
+                }
+            }
+
+            val message: String = when {
+                successCount > 0 && failureCount == 0 -> context.getString(R.string.lfm_batch_rename_success_all, successCount)
+                successCount > 0 && failureCount > 0 -> context.getString(R.string.lfm_batch_rename_success_partial, successCount, failureCount)
+                successCount == 0 && failureCount > 0 -> context.getString(R.string.lfm_batch_rename_failure_all, failureCount)
+                else -> context.getString(R.string.lfm_batch_rename_no_files_processed) // Should not happen if initial check passes
+            }
+            _toastMessageEvent.tryEmit(message)
+
+            fetchDirectoryEntries(parentUri)
+            withContext(Dispatchers.Main) {
+                exitSelectionMode()
+                dismissBatchRenameDialog()
+                    }
+                }
+            }
+
+        }

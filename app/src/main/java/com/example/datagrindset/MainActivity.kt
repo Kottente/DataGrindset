@@ -1,5 +1,7 @@
 package com.example.datagrindset
 
+import android.app.Activity
+import android.content.ContentValues.TAG
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -8,8 +10,10 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,6 +41,14 @@ import androidx.navigation.NavController
 import com.example.datagrindset.ui.LoginScreen
 import com.example.datagrindset.ui.SignUpScreen
 import com.example.datagrindset.viewmodel.AuthViewModel
+import com.example.datagrindset.viewmodel.SettingsViewModel
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignIn.*
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
@@ -44,9 +56,10 @@ import kotlinx.coroutines.flow.collectLatest
 
 
 class MainActivity : ComponentActivity() {
-
+    private lateinit var googleSignInClient: GoogleSignInClient
+    private lateinit var googleSignInLauncher: ActivityResultLauncher<Intent>
     private val localFileManagerViewModel: LocalFileManagerViewModel by viewModels {
-        LocalFileManagerViewModelFactory(application)
+        LocalFileManagerViewModelFactory(application, authViewModel.currentUser)
     }
     private val authViewModel: AuthViewModel by viewModels()
 
@@ -83,6 +96,35 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val settingsViewModel: SettingsViewModel by viewModels()
+        val webClientId = getString(R.string.default_web_client_id)
+        if (webClientId == "YOUR_WEB_CLIENT_ID" || webClientId.isEmpty() || !webClientId.endsWith(".apps.googleusercontent.com")) {
+            Log.e(TAG, "CRITICAL: default_web_client_id ('$webClientId') is not set correctly in strings.xml. Google Sign-In will likely fail.")
+            Toast.makeText(this, "Google Sign-In is not configured correctly (client ID error).", Toast.LENGTH_LONG).show()
+        } else {
+            Log.d(TAG, "Using Web Client ID for Google Sign-In: $webClientId")
+        }
+
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(webClientId) // Use string resource
+            .requestEmail()
+            .build()
+
+        googleSignInClient = getClient(this, gso)
+
+        googleSignInLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            Log.d(TAG, "Google Sign-In ActivityResult: resultCode=${result.resultCode}")
+            if (result.resultCode == Activity.RESULT_OK) {
+                val task =  GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                handleGoogleSignInResult(task)
+            } else {
+                Log.w("MainActivity", "Google Sign In cancelled or failed. Result code: ${result.resultCode}")
+                Toast.makeText(this, "Google Sign In failed.", Toast.LENGTH_SHORT).show()
+                authViewModel.clearAuthResult()
+            }
+        }
         super.onCreate(savedInstanceState)
         FirebaseApp.initializeApp(this) // Ensure Firebase is initialized
         val firebaseAppCheck = FirebaseAppCheck.getInstance()
@@ -90,7 +132,11 @@ class MainActivity : ComponentActivity() {
             PlayIntegrityAppCheckProviderFactory.getInstance()
         )
         setContent {
-            DataGrindsetTheme {
+            val currentThemePair by settingsViewModel.currentThemePair.collectAsState()
+            val useDark = isSystemInDarkTheme()
+            DataGrindsetTheme(useDarkTheme = useDark,
+                currentLightColorScheme = currentThemePair.first,
+                currentDarkColorScheme = currentThemePair.second) {
                 val navController = rememberNavController()
                 val currentUser by authViewModel.currentUser.collectAsState()
 
@@ -123,12 +169,21 @@ class MainActivity : ComponentActivity() {
 
                 NavHost(navController = navController, startDestination = "fileManager") {
                     composable("login") {
-                        LoginScreen(navController = navController, authViewModel = authViewModel)
+                        LoginScreen(
+                            navController = navController,
+                            authViewModel = authViewModel,
+                            onGoogleSignInClicked = {
+                                Log.i(TAG, "Google Sign-In button clicked. Launching intent.")
+                                val signInIntent = googleSignInClient.signInIntent
+                                googleSignInLauncher.launch(signInIntent)
+                            }
+                        )
                     }
                     composable("signup") {
                         SignUpScreen(navController = navController, authViewModel = authViewModel)
                     }
                     composable("fileManager") {
+                        val batchRenameDialogState by localFileManagerViewModel.batchRenameDialogState.collectAsStateWithLifecycle() // Collect new state
                         val rootTreeUri by localFileManagerViewModel.rootTreeUri.collectAsStateWithLifecycle()
                         val currentFolderUri by localFileManagerViewModel.currentFolderUri.collectAsStateWithLifecycle()
                         val canNavigateUp by localFileManagerViewModel.canNavigateUp.collectAsStateWithLifecycle()
@@ -154,6 +209,7 @@ class MainActivity : ComponentActivity() {
                         LocalFileManagerScreen(
                             navController = navController,
                             rootUriIsSelected = rootTreeUri != null,
+                            viewModel = localFileManagerViewModel,
                             currentDirectoryUri = currentFolderUri ?: rootTreeUri,
                             canNavigateUp = canNavigateUp,
                             currentPath = currentPath,
@@ -209,7 +265,13 @@ class MainActivity : ComponentActivity() {
                             showExtractOptionsDialog = showExtractOptionsDialog,
                             onDismissExtractOptionsDialog = localFileManagerViewModel::dismissExtractOptionsDialog,
                             onExtractToCurrentFolder = localFileManagerViewModel::extractArchiveToCurrentFolder,
-                            onInitiateExtractToAnotherFolder = localFileManagerViewModel::initiateExtractArchiveToAnotherFolder
+                            onInitiateExtractToAnotherFolder = localFileManagerViewModel::initiateExtractArchiveToAnotherFolder,
+                            onNavigateToMySecuredSpace = localFileManagerViewModel::navigateToMySecuredSpace, // New callback
+                            isUserLoggedIn = currentUser != null,
+                            onRequestBatchRename = localFileManagerViewModel::requestBatchRename,
+                            onDismissBatchRenameDialog = localFileManagerViewModel::dismissBatchRenameDialog,
+                            onConfirmBatchRename = localFileManagerViewModel::performBatchRename,
+                            batchRenameDialogState = batchRenameDialogState
                         )
                     }
 
@@ -256,7 +318,8 @@ class MainActivity : ComponentActivity() {
                                     recreate()
                                 }
                             },
-                            currentLanguageCode = LocaleHelper.getLanguage(this@MainActivity)
+                            currentLanguageCode = LocaleHelper.getLanguage(this@MainActivity),
+                            settingsViewModel = settingsViewModel
                         )
                     }
                 }
@@ -282,5 +345,47 @@ class MainActivity : ComponentActivity() {
             // However, with Jetpack Compose Navigation, this is typically handled by recomposition
             // based on state that NavHost observes, or by restarting the activity cleanly.
         }
+    }
+    private fun handleGoogleSignInResult(completedTask: Task<GoogleSignInAccount>) {
+        Log.d(TAG, "handleGoogleSignInResult called")
+        try {
+            val account = completedTask.getResult(ApiException::class.java)
+            val idToken = account?.idToken
+            if (idToken != null) {
+                Log.i(TAG, "Google Sign In successful, got ID token.") // Token removed for security
+                authViewModel.signInWithGoogleToken(idToken)
+            } else {
+                Log.w(TAG, "Google Sign In successful, but ID token was null. Account: ${account?.email}")
+                Toast.makeText(this, "Google Sign In failed: No ID token obtained.", Toast.LENGTH_LONG).show()
+                authViewModel.clearAuthResult()
+            }
+        } catch (e: ApiException) {
+            Log.e(TAG, "Google Sign In failed with ApiException: Status Code: ${e.statusCode}, message: ${e.message}", e)
+            // Specific error codes can be checked here, e.g., CommonStatusCodes.NETWORK_ERROR (7), CommonStatusCodes.SIGN_IN_REQUIRED (4)
+            // For statusCode 10 (DEVELOPER_ERROR), it's almost certainly a configuration issue (SHA-1, client ID, package name)
+            var errorMsg = "Google Sign In failed: ${e.localizedMessage} (Code: ${e.statusCode})"
+            if (e.statusCode == com.google.android.gms.common.api.CommonStatusCodes.DEVELOPER_ERROR) {
+                errorMsg += "\nThis is often a configuration issue (SHA-1, Web Client ID, package name in console)."
+                Log.e(TAG, "DEVELOPER_ERROR (10) received. Check SHA-1, Web Client ID, package name in Google Cloud/Firebase console.")
+            } else if (e.statusCode == com.google.android.gms.common.api.CommonStatusCodes.SIGN_IN_REQUIRED) {
+                errorMsg += "\nSign in is required. Please try again."
+                Log.w(TAG, "SIGN_IN_REQUIRED (4) received.")
+            }
+            Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show()
+            authViewModel.clearAuthResult()
+        } catch (e: Exception) {
+            Log.e(TAG, "Google Sign In failed with general Exception: ${e.message}", e)
+            Toast.makeText(this, "Google Sign In failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            authViewModel.clearAuthResult()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Check if user is signed in (non-null) and update UI accordingly.
+        // This is more for traditional views, with Compose it's handled by state.
+        // But good for logging.
+        val currentUser = authViewModel.currentUser.value
+        Log.d(TAG, "onStart: Current user UID: ${currentUser?.uid}")
     }
 }

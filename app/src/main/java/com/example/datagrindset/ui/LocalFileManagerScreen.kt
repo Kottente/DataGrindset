@@ -1,11 +1,13 @@
 package com.example.datagrindset.ui
 
+import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,7 +15,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock // Icon for Secured Space
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -26,6 +30,7 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FileCopy
 import androidx.compose.material.icons.filled.Folder
@@ -54,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -68,16 +74,27 @@ import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import com.example.datagrindset.viewmodel.DirectoryEntry
 import com.example.datagrindset.viewmodel.ItemDetails
 import com.example.datagrindset.viewmodel.LocalizedSummary
+import com.example.datagrindset.LocaleHelper
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.core.net.toUri
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.datagrindset.viewmodel.BatchRenameDialogState
+import com.example.datagrindset.viewmodel.LocalFileManagerViewModel
+import com.example.datagrindset.viewmodel.PerformBatchRenameOptions
+import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun LocalFileManagerScreen(
     navController: NavController,
     rootUriIsSelected: Boolean,
+    viewModel: LocalFileManagerViewModel,
     currentDirectoryUri: Uri?,
     canNavigateUp: Boolean,
     currentPath: String,
@@ -129,7 +146,14 @@ fun LocalFileManagerScreen(
     onConfirmArchiveCreation: (String) -> Unit,
     onDismissExtractOptionsDialog: () -> Unit,
     onExtractToCurrentFolder: () -> Unit,
-    onInitiateExtractToAnotherFolder: () -> Unit
+    onInitiateExtractToAnotherFolder: () -> Unit,
+    onNavigateToMySecuredSpace: () -> Unit,
+    isUserLoggedIn: Boolean,
+    onRequestBatchRename: () -> Unit,
+    onDismissBatchRenameDialog: () -> Unit,
+    batchRenameDialogState: BatchRenameDialogState?,
+    onConfirmBatchRename: (PerformBatchRenameOptions) -> Unit
+
 ) {
     var showSearchFieldState by remember { mutableStateOf(false) }
     var showSortAndOptionsKebabMenu by remember { mutableStateOf(false) }
@@ -138,10 +162,22 @@ fun LocalFileManagerScreen(
     var newFolderName by remember { mutableStateOf("") }
     var archiveNameTextState by remember { mutableStateOf("") }
 
+    var batchRenameBaseName by remember { mutableStateOf("") }
+    var batchRenameStartNum by remember { mutableStateOf("1") }
+    var batchRenameNumDigits by remember { mutableStateOf("0") }
+    var batchRenameKeepExt by remember { mutableStateOf(true) }
+
     val itemDetailsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val openWithButtonTextResolved = stringResource(R.string.lfm_open_with_button)
     val couldNotOpenFileToastMsg = stringResource(id = R.string.lfm_could_not_open_file_toast)
-
+    LaunchedEffect(batchRenameDialogState) {
+        batchRenameDialogState?.let {
+            batchRenameBaseName = it.baseName
+            batchRenameStartNum = it.startNumber
+            batchRenameNumDigits = it.numDigits
+            batchRenameKeepExt = it.keepExtension
+        }
+    }
     LaunchedEffect(navigateToAnalysisTarget) {
         navigateToAnalysisTarget?.let { fileEntry ->
             Log.d("LFM_Screen", "navigateToAnalysisTarget changed: ${fileEntry.name}. Current value: $navigateToAnalysisTarget")
@@ -221,9 +257,9 @@ fun LocalFileManagerScreen(
         val defaultArchiveNameBase = if (showArchiveNameDialog.size == 1) {
             showArchiveNameDialog.first().name.substringBeforeLast('.')
         } else {
-            currentPath.substringAfterLast(" > ", "Archive")
+            currentPath.substringAfterLast(" > ", "Archive") // Use current path part as default
         }
-        LaunchedEffect(showArchiveNameDialog) {
+        LaunchedEffect(showArchiveNameDialog) { // Re-init if dialog re-opens with different items
             archiveNameTextState = defaultArchiveNameBase
         }
 
@@ -260,10 +296,10 @@ fun LocalFileManagerScreen(
             title = {
                 Text(stringResource(R.string.lfm_extract_options_dialog_title) + " '${showExtractOptionsDialog.name}'")
             },
-            text = { // The main content area for the choices
+            text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(), // Allow column to take width
-                    horizontalAlignment = Alignment.CenterHorizontally // Center buttons in the column
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Button(
                         onClick = {
@@ -275,17 +311,13 @@ fun LocalFileManagerScreen(
                     OutlinedButton(
                         onClick = {
                             onInitiateExtractToAnotherFolder()
-                            onDismissExtractOptionsDialog()
+                            // onDismissExtractOptionsDialog() // Dismissal handled by picker flow
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text(stringResource(R.string.lfm_extract_to_another_folder_button)) }
                 }
             },
-            confirmButton = {
-                // This slot is usually for a single confirm action.
-                // Since our actions are in the 'text' slot, this can be empty
-                // or used for a generic "OK" if that fits the UX, but here it's not needed.
-            },
+            confirmButton = {}, // Actions are in the text block
             dismissButton = {
                 TextButton(onClick = onDismissExtractOptionsDialog) {
                     Text(stringResource(R.string.lfm_cancel_button))
@@ -293,7 +325,94 @@ fun LocalFileManagerScreen(
             }
         )
     }
-
+    if (batchRenameDialogState != null) {
+        AlertDialog(
+            onDismissRequest = onDismissBatchRenameDialog,
+            icon = { Icon(Icons.Filled.DriveFileRenameOutline, null) },
+            title = { Text(stringResource(R.string.lfm_batch_rename_dialog_title, batchRenameDialogState.itemsToRenameCount)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = batchRenameBaseName,
+                        onValueChange = { batchRenameBaseName = it },
+                        label = { Text(stringResource(R.string.lfm_batch_rename_base_name_label)) },
+                        placeholder = { Text(stringResource(R.string.lfm_batch_rename_base_name_placeholder))},
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = batchRenameStartNum,
+                            onValueChange = { batchRenameStartNum = it.filter { char -> char.isDigit() } },
+                            label = { Text(stringResource(R.string.lfm_batch_rename_start_number_label)) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = batchRenameNumDigits,
+                            onValueChange = { batchRenameNumDigits = it.filter { char -> char.isDigit() } },
+                            label = { Text(stringResource(R.string.lfm_batch_rename_num_digits_label)) },
+                            placeholder = { Text(stringResource(R.string.lfm_batch_rename_num_digits_placeholder)) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                            .clickable { batchRenameKeepExt = !batchRenameKeepExt }
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Checkbox(
+                            checked = batchRenameKeepExt,
+                            onCheckedChange = { batchRenameKeepExt = it }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.lfm_batch_rename_keep_extension_label))
+                    }
+                    Text(
+                        stringResource(
+                            R.string.lfm_batch_rename_example_label,
+                                constructBatchRenameExample(
+                                batchRenameBaseName,
+                                batchRenameStartNum.toIntOrNull() ?: 1,
+                                batchRenameNumDigits.toIntOrNull() ?: 0,
+                                batchRenameKeepExt
+                            )
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontStyle = FontStyle.Italic
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val startNum = batchRenameStartNum.toIntOrNull() ?: 1
+                    val numDigits = batchRenameNumDigits.toIntOrNull() ?: 0
+                    if (numDigits < 0) {
+                        Toast.makeText(context, context.getString(R.string.lfm_batch_rename_error_invalid_digits), Toast.LENGTH_SHORT).show()
+                        return@TextButton
+                    }
+                    onConfirmBatchRename(
+                        PerformBatchRenameOptions(
+                            baseName = batchRenameBaseName,
+                            startNumber = startNum,
+                            numDigits = numDigits,
+                            keepOriginalExtension = batchRenameKeepExt
+                        )
+                    )
+                }) { Text(stringResource(R.string.lfm_rename_button)) }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissBatchRenameDialog) { Text(stringResource(R.string.lfm_cancel_button)) }
+            }
+        )
+    }
 
     BackHandler(enabled = isSelectionModeActive) { onExitSelectionMode() }
 
@@ -332,6 +451,19 @@ fun LocalFileManagerScreen(
                             Box {
                                 IconButton(onClick = { showSortAndOptionsKebabMenu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.lfm_more_options_icon_desc)) }
                                 DropdownMenu(expanded = showSortAndOptionsKebabMenu, onDismissRequest = { showSortAndOptionsKebabMenu = false }) {
+                                    // My Secured Space Menu Item
+                                    if (isUserLoggedIn) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.lfm_my_secured_space_menu_item)) },
+                                            onClick = {
+                                                onNavigateToMySecuredSpace()
+                                                showSortAndOptionsKebabMenu = false
+                                            },
+                                            leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = stringResource(R.string.lfm_my_secured_space_menu_item_desc)) }
+                                        )
+                                        HorizontalDivider()
+                                    }
+
                                     DropdownMenuItem(text = { Text(stringResource(R.string.lfm_create_folder_menu)) }, onClick = { onRequestShowCreateFolderDialog(); showSortAndOptionsKebabMenu = false }, leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null) })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.lfm_select_items_to_move_here_menu)) }, onClick = { onInitiateMoveExternal(); showSortAndOptionsKebabMenu = false }, leadingIcon = { Icon(Icons.Filled.MoveDown, null) })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.lfm_change_root_folder_menu)) }, onClick = { onSelectRootDirectoryClicked(); showSortAndOptionsKebabMenu = false }, leadingIcon = { Icon(Icons.Filled.FolderOpen, null) })
@@ -360,7 +492,18 @@ fun LocalFileManagerScreen(
                                     DropdownMenuItem(text = { Text(stringResource(R.string.lfm_action_open_with_another_app)) }, onClick = { onOpenSelectedWithAnotherApp(); showBottomBarMoreOptionsMenu = false })
                                 }
                                 DropdownMenuItem(text = { Text(stringResource(R.string.lfm_action_details)) }, onClick = { onShowItemDetails(); showBottomBarMoreOptionsMenu = false })
-
+                                // Batch Rename Menu Item
+                                val selectedFilesCount = selectedItems.count { it is DirectoryEntry.FileEntry }
+                                if (selectedFilesCount > 0) { // Show only if at least one file is selected
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.lfm_batch_rename_menu_item)) },
+                                        onClick = {
+                                            onRequestBatchRename()
+                                            showBottomBarMoreOptionsMenu = false
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.DriveFileRenameOutline, null) }
+                                    )
+                                }
                                 if (selectedItemsCount == 1 && firstSelectedItem is DirectoryEntry.FileEntry && (firstSelectedItem.name.endsWith(".zip", ignoreCase = true) || firstSelectedItem.mimeType == "application/zip")) {
                                     DropdownMenuItem(text = { Text(stringResource(R.string.lfm_action_extract)) }, onClick = { onRequestExtractArchive(firstSelectedItem); showBottomBarMoreOptionsMenu = false }, leadingIcon = { Icon(Icons.Filled.Unarchive, null)})
                                 } else if (selectedItems.isNotEmpty()){
@@ -450,19 +593,19 @@ fun GridFolderItem(
                 if (isSelectionModeActive) {
                     Checkbox(
                         checked = isSelected,
-                        onCheckedChange = { onItemClick() },
+                        onCheckedChange = { onItemClick() }, // Simplified for grid
                         modifier = Modifier.align(Alignment.TopStart).size(24.dp)
                     )
                 }
             }
             Icon(
-                Icons.Filled.Folder,
+                imageVector = if (folderEntry.isSecuredUserDataRoot) Icons.Filled.Lock else Icons.Filled.Folder, // Secured icon
                 contentDescription = stringResource(R.string.lfm_folder_icon_desc),
                 modifier = Modifier.size(48.dp).weight(1f, fill = false),
                 tint = MaterialTheme.colorScheme.secondary
             )
             Text(
-                folderEntry.name,
+                folderEntry.name, // This will be "My Secured Space" for the root
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -499,7 +642,7 @@ fun GridFileItem(
                 if (isSelectionModeActive) {
                     Checkbox(
                         checked = isSelected,
-                        onCheckedChange = { onItemClick() },
+                        onCheckedChange = { onItemClick() }, // Simplified for grid
                         modifier = Modifier.align(Alignment.TopStart).size(24.dp)
                     )
                 }
@@ -542,7 +685,12 @@ fun FolderListItem(
     ) {
         Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (isSelectionModeActive) { Checkbox(checked = isSelected, onCheckedChange = { onItemClick() } , modifier = Modifier.padding(end = 8.dp)) }
-            Icon(Icons.Filled.Folder, stringResource(R.string.lfm_folder_icon_desc), modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.secondary)
+            Icon(
+                imageVector = if (folderEntry.isSecuredUserDataRoot) Icons.Filled.Lock else Icons.Filled.Folder, // Secured icon
+                contentDescription = stringResource(R.string.lfm_folder_icon_desc),
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.secondary
+            )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(folderEntry.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -593,7 +741,15 @@ fun FileListItem(
         }
     }
 }
-
+private fun constructBatchRenameExample(baseName: String, startNum: Int, numDigits: Int, keepExt: Boolean): String {
+    val exampleNum = if (numDigits > 0) startNum.toString().padStart(numDigits, '0') else startNum.toString()
+    val namePart = if (baseName.contains("{#}") || baseName.contains("{orig}")) {
+        baseName.replace("{#}", exampleNum).replace("{orig}", "OriginalName")
+    } else {
+        baseName + exampleNum
+    }
+    return if (keepExt) "$namePart.ext" else namePart
+}
 @Composable
 fun ItemDetailsSheetContent(details: ItemDetails?, onDismiss: () -> Unit) {
     if (details == null) { Box(modifier = Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.lfm_item_details_no_details)) }; return }
@@ -611,6 +767,9 @@ fun ItemDetailsSheetContent(details: ItemDetails?, onDismiss: () -> Unit) {
             DetailRow(label = stringResource(R.string.lfm_item_details_readable), value = if (details.isReadable) stringResource(R.string.lfm_item_details_yes) else stringResource(R.string.lfm_item_details_no))
             DetailRow(label = stringResource(R.string.lfm_item_details_writable), value = if (details.isWritable) stringResource(R.string.lfm_item_details_yes) else stringResource(R.string.lfm_item_details_no))
             DetailRow(label = stringResource(R.string.lfm_item_details_hidden), value = if (details.isHidden) stringResource(R.string.lfm_item_details_yes) else stringResource(R.string.lfm_item_details_no))
+            if(details.isSecured) { // Show secured status
+                DetailRow(label = stringResource(R.string.lfm_item_details_secured_status), value = stringResource(R.string.lfm_item_details_secured))
+            }
         }
         Spacer(modifier = Modifier.height(24.dp))
         Button(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text(stringResource(R.string.txt_analysis_summary_close_button)) }
@@ -632,18 +791,92 @@ fun SortOption.toDisplayStringRes(): Int {
     }
 }
 
-@Preview(showBackground = true, name = "File Manager - List View")
-@Composable
-fun LocalFileManagerScreenListPreview() {
-    DataGrindsetTheme {
-        LocalFileManagerScreen(navController = rememberNavController(), rootUriIsSelected = true, currentDirectoryUri = Uri.parse("content://preview/current"), canNavigateUp = true, currentPath = "Preview > Current Folder", entries = listOf(DirectoryEntry.FolderEntry("folder1_id", "My Folder", Uri.parse("content://preview/folder1"), 2), DirectoryEntry.FileEntry("file1_id", "MyFile.txt", Uri.parse("content://preview/file1"), 1024, System.currentTimeMillis(), "text/plain")), fileProcessingStatusMap = emptyMap(), searchText = "", onSearchTextChanged = {}, currentSortOption = SortOption.BY_NAME_ASC, onSortOptionSelected = {}, onSelectRootDirectoryClicked = {}, onNavigateToFolder = {}, onNavigateUp = {}, navigateToAnalysisTarget = null, onDidNavigateToAnalysisScreen = {}, suggestExternalAppForFile = null, onDidAttemptToOpenWithExternalApp = {}, onPrepareFileForAnalysis = {}, isSelectionModeActive = false, selectedItems = emptySet(), selectedItemsUris = emptySet(), selectedItemsCount = 0, onToggleItemSelected = {}, onEnterSelectionMode = {}, onExitSelectionMode = {}, onSelectAll = {}, onDeselectAll = {}, onShareSelected = {}, onCutSelected = {}, onCopySelected = {}, onRequestArchiveSelectedItems = {}, onRequestExtractArchive = {}, onOpenSelectedWithAnotherApp = {}, onShowItemDetails = {}, onDeleteSelectedItems = {}, itemDetailsToShow = null, onDismissItemDetails = {}, showCreateFolderDialog = false, onRequestShowCreateFolderDialog = {}, onDismissCreateFolderDialog = {}, onCreateFolder = {}, clipboardHasItems = false, onPaste = {}, onInitiateMoveExternal = {}, viewType = ViewType.LIST, onToggleViewType = {}, showArchiveNameDialog = null, onDismissArchiveNameDialog = {}, onConfirmArchiveCreation = {}, showExtractOptionsDialog = null, onDismissExtractOptionsDialog = {}, onExtractToCurrentFolder = {}, onInitiateExtractToAnotherFolder = {})
-    }
+
+
+// --- Preview Setup ---
+class PreviewLocalFileManagerViewModel(application: Application, initialUser: FirebaseUser?) : LocalFileManagerViewModel(application, MutableStateFlow(initialUser)) {
+    // You can override methods here if needed for specific preview states
 }
 
-@Preview(showBackground = true, name = "File Manager - Grid View")
-@Composable
-fun LocalFileManagerScreenGridPreview() {
-    DataGrindsetTheme {
-        LocalFileManagerScreen(navController = rememberNavController(), rootUriIsSelected = true, currentDirectoryUri = Uri.parse("content://preview/current"), canNavigateUp = true, currentPath = "Preview > Current Folder", entries = listOf(DirectoryEntry.FolderEntry("folder1_id", "My Folder with a very long name that should wrap or ellipsis", Uri.parse("content://preview/folder1"), 2), DirectoryEntry.FileEntry("file1_id", "MyFileWithALongName.txt", Uri.parse("content://preview/file1"), 1024, System.currentTimeMillis(), "text/plain"), DirectoryEntry.FileEntry("file2_id", "Image.jpg", Uri.parse("content://preview/file2"), 204800, System.currentTimeMillis() - 100000, "image/jpeg")), fileProcessingStatusMap = emptyMap(), searchText = "", onSearchTextChanged = {}, currentSortOption = SortOption.BY_NAME_ASC, onSortOptionSelected = {}, onSelectRootDirectoryClicked = {}, onNavigateToFolder = {}, onNavigateUp = {}, navigateToAnalysisTarget = null, onDidNavigateToAnalysisScreen = {}, suggestExternalAppForFile = null, onDidAttemptToOpenWithExternalApp = {}, onPrepareFileForAnalysis = {}, isSelectionModeActive = false, selectedItems = emptySet(), selectedItemsUris = emptySet(), selectedItemsCount = 0, onToggleItemSelected = {}, onEnterSelectionMode = {}, onExitSelectionMode = {}, onSelectAll = {}, onDeselectAll = {}, onShareSelected = {}, onCutSelected = {}, onCopySelected = {}, onRequestArchiveSelectedItems = {}, onRequestExtractArchive = {}, onOpenSelectedWithAnotherApp = {}, onShowItemDetails = {}, onDeleteSelectedItems = {}, itemDetailsToShow = null, onDismissItemDetails = {}, showCreateFolderDialog = false, onRequestShowCreateFolderDialog = {}, onDismissCreateFolderDialog = {}, onCreateFolder = {}, clipboardHasItems = false, onPaste = {}, onInitiateMoveExternal = {}, viewType = ViewType.GRID, onToggleViewType = {}, showArchiveNameDialog = null, onDismissArchiveNameDialog = {}, onConfirmArchiveCreation = {}, showExtractOptionsDialog = null, onDismissExtractOptionsDialog = {}, onExtractToCurrentFolder = {}, onInitiateExtractToAnotherFolder = {})
+class PreviewLocalFileManagerViewModelFactory(
+    private val application: Application,
+    private val initialUser: FirebaseUser? = null // Default to no user for previews
+) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(LocalFileManagerViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            // Use the PreviewLocalFileManagerViewModel or the real one if it can handle null currentUserState for preview
+            return PreviewLocalFileManagerViewModel(application, initialUser) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class for Preview")
     }
 }
+//
+//@Preview(showBackground = true, name = "File Manager - List View (Logged In)")
+//@Composable
+//fun LocalFileManagerScreenListPreviewLoggedIn() {
+//    val context = LocalContext.current
+//    val previewViewModel: LocalFileManagerViewModel = viewModel(
+//        factory = PreviewLocalFileManagerViewModelFactory(context.applicationContext as Application, PreviewFirebaseUser())
+//    )
+//    DataGrindsetTheme {
+//        LocalFileManagerScreen(
+//            navController = rememberNavController(),
+//            viewModel = previewViewModel,
+//            rootUriIsSelected = true,
+//            currentDirectoryUri = Uri.parse("content://preview/current"),
+//            canNavigateUp = true,
+//            currentPath = "Preview > Current Folder",
+//            entries = listOf(
+//                DirectoryEntry.FolderEntry("folder_secured_id", LocalFileManagerViewModel.MY_SECURED_SPACE_DISPLAY_NAME, Uri.parse("content://preview/secured"), 0, isSecuredUserDataRoot = true),
+//                DirectoryEntry.FolderEntry("folder1_id", "My Folder", Uri.parse("content://preview/folder1"), 2),
+//                DirectoryEntry.FileEntry("file1_id", "MyFile.txt", Uri.parse("content://preview/file1"), 1024, System.currentTimeMillis(), "text/plain")
+//            ),
+//            fileProcessingStatusMap = emptyMap(), searchText = "", onSearchTextChanged = {},
+//            currentSortOption = SortOption.BY_NAME_ASC, onSortOptionSelected = {},
+//            onSelectRootDirectoryClicked = {}, onNavigateToFolder = {}, onNavigateUp = {},
+//            navigateToAnalysisTarget = null, onDidNavigateToAnalysisScreen = {},
+//            suggestExternalAppForFile = null, onDidAttemptToOpenWithExternalApp = {},
+//            onPrepareFileForAnalysis = {}, isSelectionModeActive = false, selectedItems = emptySet(),
+//            selectedItemsUris = emptySet(), selectedItemsCount = 0, onToggleItemSelected = {},
+//            onEnterSelectionMode = {}, onExitSelectionMode = {}, onSelectAll = {}, onDeselectAll = {},
+//            onShareSelected = {}, onCutSelected = {}, onCopySelected = {},
+//            onRequestArchiveSelectedItems = {}, onRequestExtractArchive = {},
+//            onOpenSelectedWithAnotherApp = {}, onShowItemDetails = {}, onDeleteSelectedItems = {},
+//            itemDetailsToShow = null, onDismissItemDetails = {}, showCreateFolderDialog = false,
+//            onRequestShowCreateFolderDialog = {}, onDismissCreateFolderDialog = {}, onCreateFolder = {},
+//            clipboardHasItems = false, onPaste = {}, onInitiateMoveExternal = {},
+//            viewType = ViewType.LIST, onToggleViewType = {},
+//            showArchiveNameDialog = null, onDismissArchiveNameDialog = {}, onConfirmArchiveCreation = {},
+//            showExtractOptionsDialog = null, onDismissExtractOptionsDialog = {},
+//            onExtractToCurrentFolder = {}, onInitiateExtractToAnotherFolder = {},
+//            onNavigateToMySecuredSpace = {}, isUserLoggedIn = true // Preview as logged in
+//        )
+//    }
+//}
+
+// Minimalistic FirebaseUser mock for previews
+//private class PreviewFirebaseUser(
+//    private val _email: String? = "preview@example.com",
+//    private val _uid: String = "previewUserUid123",
+//    private val _displayName: String? = "Preview User"
+//) : FirebaseUser() {
+//    override fun getEmail(): String? = _email
+//    override fun getUid(): String = _uid
+//    override fun isAnonymous(): Boolean = false
+//    override fun isEmailVerified(): Boolean = true
+//    override fun getDisplayName(): String? = _displayName
+//    override fun getPhoneNumber(): String? = null
+//    override fun getPhotoUrl(): Uri? = null
+//    override fun getProviderId(): String = "firebase"
+//    override fun getProviderData(): MutableList<out UserInfo> = mutableListOf()
+//    override fun zzr(): FirebaseUser = this
+//    override fun zzs(): MutableList<String> = mutableListOf()
+//    override fun zzf(): String = ""
+//    override fun zzg(): com.google.android.gms.internal.firebase-auth-api.zzagx = throw NotImplementedError("Preview only")
+//    override fun zzh() {}
+//    override fun zzi(p0: MutableList<out UserInfo>) { throw NotImplementedError("Preview only") }
+//    override fun zzj(): String = ""
+//    override fun zzk(): String = ""
+//    override fun zzl(): Boolean = false
+//}

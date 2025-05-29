@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -22,7 +23,8 @@ import com.google.firebase.auth.FirebaseUser
 @Composable
 fun LoginScreen(
     navController: NavController,
-    authViewModel: AuthViewModel = viewModel()
+    authViewModel: AuthViewModel = viewModel(),
+    onGoogleSignInClicked: () -> Unit
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -34,6 +36,12 @@ fun LoginScreen(
 
     LaunchedEffect(currentUser) {
         if (currentUser != null) {
+            val greetingName = if (authResult?.isNewUser == true) {
+                currentUser?.displayName ?: currentUser?.email // Use display name if new and available
+            } else {
+                currentUser?.displayName ?: currentUser?.email // Or for existing user
+            }
+            Toast.makeText(context, context.getString(R.string.login_welcome_back_toast, greetingName ?: "User"), Toast.LENGTH_SHORT).show()
             navController.navigate("fileManager") {
                 popUpTo("login") { inclusive = true }
                 launchSingleTop = true
@@ -108,7 +116,21 @@ fun LoginScreen(
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
-
+            Button(
+                onClick = onGoogleSignInClicked,
+                enabled = !isLoading,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_google_logo), // You'll need to add this drawable
+                    contentDescription = "Google sign in",
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(stringResource(R.string.login_google_button_text))
+            }
+            Spacer(modifier = Modifier.height(16.dp))
             TextButton(onClick = { navController.navigate("signup") }) {
                 Text(stringResource(R.string.login_no_account_prompt))
             }

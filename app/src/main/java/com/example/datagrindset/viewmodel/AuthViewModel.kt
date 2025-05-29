@@ -4,8 +4,13 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.datagrindset.R
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,13 +20,14 @@ import kotlinx.coroutines.tasks.await
 
 data class AuthResult(
     val user: FirebaseUser? = null,
-    val error: String? = null
+    val error: String? = null,
+    val isNewUser: Boolean? = null
 )
 
 open class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
-
+    private val googleSignInClient: GoogleSignInClient
     private val _currentUser = MutableStateFlow<FirebaseUser?>(auth.currentUser)
     open val currentUser: StateFlow<FirebaseUser?> = _currentUser.asStateFlow()
 
@@ -32,10 +38,18 @@ open class AuthViewModel(application: Application) : AndroidViewModel(applicatio
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     private val TAG = "AuthViewModel"
     init {
+        // Configure Google Sign In Client for signOut
+        // We need the application context to get the string resource
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(application.getString(R.string.default_web_client_id))
+            .requestEmail() // Request email to be available in GoogleSignInAccount
+            .build()
+        googleSignInClient = GoogleSignIn.getClient(application, gso)
+
         auth.addAuthStateListener { firebaseAuth ->
             _currentUser.value = firebaseAuth.currentUser
             if (firebaseAuth.currentUser != null) {
-                Log.d(TAG, "Auth state changed: User is ${firebaseAuth.currentUser?.uid}, DisplayName: ${firebaseAuth.currentUser?.displayName}")
+                Log.d(TAG, "Auth state changed: User is ${firebaseAuth.currentUser?.uid}, DisplayName: ${firebaseAuth.currentUser?.displayName}, Email: ${firebaseAuth.currentUser?.email}")
             } else {
                 Log.d(TAG, "Auth state changed: User is null")
             }
@@ -90,11 +104,49 @@ open class AuthViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
+    fun signInWithGoogleToken(idToken: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _authResult.value = null
+            try {
+                val credential = GoogleAuthProvider.getCredential(idToken, null)
+                val authTaskResult = auth.signInWithCredential(credential).await()
+                val user = authTaskResult.user
+                val isNewUser = authTaskResult.additionalUserInfo?.isNewUser ?: false
+
+                Log.d(TAG, "Google sign-in successful: User is ${user?.uid}, DisplayName: ${user?.displayName}, Email: ${user?.email}, Is new: $isNewUser")
+                _currentUser.value = user
+                _authResult.value = AuthResult(user = user, isNewUser = isNewUser)
+
+                // If it's a new user from Google Sign-In and they don't have a display name yet
+                // (e.g., if Google account has no public name or it wasn't fetched),
+                // you might want to prompt them to set a nickname in your app.
+                // For now, Firebase usually populates displayName from the Google account.
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Google sign-in failed", e)
+                _authResult.value = AuthResult(error = e.message ?: "Google sign-in failed")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
 
     fun signOut() {
-        auth.signOut()
-        _currentUser.value = null
-        _authResult.value = null
+        Log.d(TAG, "Signing out user: ${_currentUser.value?.uid}")
+        // Sign out from Google first to clear the Google account session for the app
+        googleSignInClient.signOut().addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                Log.d(TAG, "GoogleSignInClient signOut successful.")
+            } else {
+                Log.w(TAG, "GoogleSignInClient signOut failed.", task.exception)
+            }
+            // Regardless of Google sign-out success, sign out from Firebase
+            auth.signOut() // This will trigger AuthStateListener, which updates _currentUser
+            _currentUser.value = null
+            _authResult.value = null // Clear any previous auth result
+            Log.d(TAG, "Firebase signOut initiated.")
+        }
     }
 
     fun clearAuthResult() {

@@ -228,8 +228,9 @@
     <string name="csv_analysis_row_number_header">Row #</string>
 
     <!-- LoginScreen -->
+    <string name="default_web_client_id" translatable="false">YOUR_WEB_CLIENT_ID</string>
     <string name="login_screen_title">Login</string>
-    <string name="login_welcome_message">Welcome Back!</string>
+    <string name="login_welcome_message">Welcome!</string>
     <string name="login_email_label">Email</string>
     <string name="login_password_label">Password</string>
     <string name="login_button_text">Login</string>
@@ -250,7 +251,8 @@
     <string name="signup_fill_all_fields_toast">Please fill all fields</string>
     <string name="signup_passwords_do_not_match_toast">Passwords do not match</string>
     <string name="signup_nickname_label">Nickname</string>
-
+    <string name="login_google_button_text">Sign in with Google</string>
+    <string name="login_welcome_back_toast">Welcome, %1$s!</string>
     <!-- SettingsScreen Auth & Profile -->
     <string name="settings_profile_nickname_label">Nickname</string>
 
@@ -263,4 +265,43 @@
     <string name="settings_logged_in_as_label">Logged in as: %1$s</string>
     <string name="settings_not_logged_in_label">You are not logged in.</string>
     <string name="settings_support_email_subject">App Support Request</string>
+
+    <string name="lfm_login_required_for_secured_folder">Login is required to access or create secured space.</string>
+    <string name="lfm_select_root_directory_first">Please select a root directory first.</string>
+    <string name="lfm_invalid_root_directory">The selected root directory is invalid.</string>
+    <string name="lfm_error_creating_secured_space">Error creating your secured space.</string>
+    <string name="lfm_error_secured_space_not_folder">Your secured space path exists but is not a folder. Please resolve this manually.</string>
+    <string name="lfm_my_secured_space_display_name">My Secured Space</string> <!-- Used by LFMViewModel internally -->
+    <string name="lfm_my_secured_space_menu_item">My Secured Space</string>
+    <string name="lfm_my_secured_space_menu_item_desc">Access your secured folders</string>
+    <string name="lfm_error_manual_secured_folder_creation">Cannot create folders starting with \'.userData_\' manually here. Use \'My Secured Space\'.</string>
+    <string name="lfm_item_details_secured_status">Secured</string>
+    <string name="lfm_item_details_secured">Yes (Account Protected)</string>
+    <string name="lfm_share_error_internal_not_supported">Sharing from Secured Space is not directly supported yet.</string>
+    <string name="lfm_open_with_error_internal_not_supported_direct">Opening internal files with external apps requires FileProvider (not implemented yet).</string>
+
+    <!-- Batch Rename -->
+    <string name="lfm_batch_rename_menu_item">Batch Rename</string>
+    <string name="lfm_batch_rename_dialog_title">Batch Rename %1$d Files</string>
+    <string name="lfm_batch_rename_base_name_label">Base Name (Prefix)</string>
+    <string name="lfm_batch_rename_base_name_placeholder">e.g., Image_ (optional)</string>
+    <string name="lfm_batch_rename_start_number_label">Start Number</string>
+    <string name="lfm_batch_rename_num_digits_label">Digits</string>
+    <string name="lfm_batch_rename_num_digits_placeholder">e.g., 3 for 001</string>
+    <string name="lfm_batch_rename_keep_extension_label">Keep original extension</string>
+    <string name="lfm_batch_rename_example_label">Example: %1$s</string>
+    <string name="lfm_rename_button">Rename</string>
+    <string name="lfm_batch_rename_no_files_selected">No files selected for batch rename.</string>
+    <string name="lfm_batch_rename_error_no_parent_dir">Cannot determine parent directory for renaming.</string>
+    <string name="lfm_batch_rename_error_parent_inaccessible">Parent directory is not accessible.</string>
+    <string name="lfm_batch_rename_error_name_exists">New name \'%1$s\' already exists. Skipped \'%2$s\'.</string>
+    <string name="lfm_batch_rename_error_single">Failed to rename \'%1$s\'.</string>
+    <string name="lfm_batch_rename_error_single_exception">Error renaming \'%1$s\': %2$s</string>
+    <string name="lfm_batch_rename_success_all">Successfully renamed %1$d files.</string>
+    <string name="lfm_batch_rename_success_partial">Renamed %1$d files. %2$d files failed.</string>
+    <string name="lfm_batch_rename_failure_all">Failed to rename %1$d files.</string>
+    <string name="lfm_batch_rename_no_files_processed">No files were processed for renaming.</string>
+    <string name="lfm_batch_rename_error_invalid_digits">Number of digits must be 0 or more.</string>
+    <string name="lfm_batch_rename_custom_pattern_hint">Use {orig} for original name (no ext), {#} for number, {ext} for extension.</string>
+
 </resources>

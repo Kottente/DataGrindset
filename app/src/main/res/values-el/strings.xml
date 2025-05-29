@@ -235,6 +235,8 @@
     <string name="login_no_account_prompt">Δεν έχετε λογαριασμό;         Εγγραφείτε</string>
     <string name="login_fill_all_fields_toast">Παρακαλώ συμπληρώστε όλα τα πεδία</string>
     <string name="login_guest_access_button">Συνέχεια ως επισκέπτης</string>
+    <string name="login_google_button_text">Sign in with Google</string>
+    <string name="login_welcome_back_toast">Welcome, %1$s!</string>
 
     <!-- SignUpScreen -->
     <string name="signup_password_invalid_toast">Ο κωδικός πρόσβασης πρέπει να είναι τουλάχιστον 6 χαρακτήρες, να περιλαμβάνει έναν αριθμό και ένα γράμμα.</string>
@@ -259,4 +261,42 @@
     <string name="settings_logged_in_as_label">Συνδεδεμένος ως: %1$s</string>
     <string name="settings_not_logged_in_label">Δεν είστε συνδεδεμένοι.</string>
     <string name="settings_support_email_subject">Αίτημα υποστήριξης εφαρμογής</string>
+
+    <!-- LocalFileManagerViewModel Secured Folders -->
+    <string name="lfm_login_required_for_secured_folder"> απαιτείται για την πρόσβαση ή τη δημιουργία ασφαλούς χώρου.</string>
+    <string name="lfm_select_root_directory_first">Επιλέξτε πρώτα έναν ριζικό κατάλογο.</string>
+    <string name="lfm_invalid_root_directory">Ο επιλεγμένος ριζικός κατάλογος δεν είναι έγκυρος.</string>
+    <string name="lfm_error_creating_secured_space">Σφάλμα κατά τη δημιουργία του ασφαλούς χώρου σας.</string>
+    <string name="lfm_error_secured_space_not_folder">Η διαδρομή του ασφαλούς χώρου σας υπάρχει αλλά δεν είναι φάκελος. Παρακαλώ επιλύστε το χειροκίνητα.</string>
+    <string name="lfm_my_secured_space_menu_item">Ο Ασφαλής Χώρος μου</string>
+    <string name="lfm_my_secured_space_menu_item_desc">Πρόσβαση στους ασφαλείς φακέλους σας</string>
+    <string name="lfm_error_manual_secured_folder_creation">Δεν μπορείτε να δημιουργήσετε φακέλους που ξεκινούν με \'.userData_\' χειροκίνητα εδώ. Χρησιμοποιήστε τον \'Ασφαλή Χώρο μου\'.</string>
+    <string name="lfm_item_details_secured_status">Ασφαλές</string>
+    <string name="lfm_item_details_secured">Ναι (Προστατεύεται από λογαριασμό)</string>
+    <string name="lfm_my_secured_space_display_name">My Secured Space</string> <!-- Used by LFMViewModel internally -->
+    <string name="lfm_share_error_internal_not_supported">Η κοινή χρήση από τον Ασφαλή Χώρο δεν υποστηρίζεται ακόμη άμεσα.</string>
+    <string name="lfm_open_with_error_internal_not_supported_direct">Το άνοιγμα εσωτερικών αρχείων με εξωτερικές εφαρμογές απαιτεί FileProvider (δεν έχει υλοποιηθεί ακόμη).</string>
+    <!-- Batch Rename -->
+    <string name="lfm_batch_rename_menu_item">Μαζική Μετονομασία</string>
+    <string name="lfm_batch_rename_dialog_title">Μαζική Μετονομασία %1$d Αρχείων</string>
+    <string name="lfm_batch_rename_base_name_label">Βασικό Όνομα (Πρόθεμα)</string>
+    <string name="lfm_batch_rename_base_name_placeholder">π.χ., Image_ (προαιρετικό)</string>
+    <string name="lfm_batch_rename_start_number_label">Αρχικός Αριθμός</string>
+    <string name="lfm_batch_rename_num_digits_label">Ψηφία</string>
+    <string name="lfm_batch_rename_num_digits_placeholder">π.χ., 3 για 001</string>
+    <string name="lfm_batch_rename_keep_extension_label">Διατήρηση αρχικής επέκτασης</string>
+    <string name="lfm_batch_rename_example_label">Παράδειγμα: %1$s</string>
+    <string name="lfm_rename_button">Μετονομασία</string>
+    <string name="lfm_batch_rename_no_files_selected">Δεν επιλέχθηκαν αρχεία για μαζική μετονομασία.</string>
+    <string name="lfm_batch_rename_error_no_parent_dir">Δεν είναι δυνατός ο προσδιορισμός του γονικού καταλόγου για μετονομασία.</string>
+    <string name="lfm_batch_rename_error_parent_inaccessible">Ο γονικός κατάλογος δεν είναι προσβάσιμος.</string>
+    <string name="lfm_batch_rename_error_name_exists">Το νέο όνομα \'%1$s\' υπάρχει ήδη. Παραλείφθηκε το \'%2$s\'.</string>
+    <string name="lfm_batch_rename_error_single">Αποτυχία μετονομασίας του \'%1$s\'.</string>
+    <string name="lfm_batch_rename_error_single_exception">Σφάλμα μετονομασίας του \'%1$s\': %2$s</string>
+    <string name="lfm_batch_rename_success_all">Επιτυχής μετονομασία %1$d αρχείων.</string>
+    <string name="lfm_batch_rename_success_partial">Μετονομάστηκαν %1$d αρχεία. %2$d αρχεία απέτυχαν.</string>
+    <string name="lfm_batch_rename_failure_all">Αποτυχία μετονομασίας %1$d αρχείων.</string>
+    <string name="lfm_batch_rename_no_files_processed">Δεν έγινε επεξεργασία αρχείων για μετονομασία.</string>
+    <string name="lfm_batch_rename_error_invalid_digits">Ο αριθμός των ψηφίων πρέπει να είναι 0 ή μεγαλύτερος.</string>
+    <string name="lfm_batch_rename_custom_pattern_hint">Χρησιμοποιήστε {orig} για αρχικό όνομα (χωρίς επεκ.), {#} για αριθμό, {ext} για επέκταση.</string>
 </resources>

@@ -228,14 +228,15 @@
     <string name="csv_analysis_row_number_header">Стр. №</string>
     <!-- LoginScreen -->
     <string name="login_screen_title">Вход</string>
-    <string name="login_welcome_message">С возвращением!</string>
+    <string name="login_welcome_message">Добро пожаловать!</string>
     <string name="login_email_label">Электронная почта</string>
     <string name="login_password_label">Пароль</string>
     <string name="login_button_text">Войти</string>
     <string name="login_no_account_prompt">Нет аккаунта?        Зарегистрироваться</string>
     <string name="login_fill_all_fields_toast">Пожалуйста, заполните все поля</string>
     <string name="login_guest_access_button">Продолжить как гость</string>
-
+    <string name="login_google_button_text">Вход с помощью аккаунта Google</string>
+    <string name="login_welcome_back_toast">Добро пожаловать, %1$s!</string>
     <!-- SignUpScreen -->
     <string name="signup_password_invalid_toast">Пароль должен содержать не менее 6 символов, включая цифру и букву.</string>
     <string name="signup_screen_title">Регистрация</string>
@@ -260,4 +261,44 @@
     <string name="settings_logged_in_as_label">Вы вошли как: %1$s</string>
     <string name="settings_not_logged_in_label">Вы не вошли в систему.</string>
     <string name="settings_support_email_subject">Запрос в службу поддержки приложения</string>
+
+
+    <!-- LocalFileManagerViewModel Secured Folders -->
+    <string name="lfm_login_required_for_secured_folder">Для доступа или создания защищенного пространства требуется вход в систему.</string>
+    <string name="lfm_select_root_directory_first">Сначала выберите корневой каталог.</string>
+    <string name="lfm_invalid_root_directory">Выбранный корневой каталог недействителен.</string>
+    <string name="lfm_error_creating_secured_space">Ошибка при создании вашего защищенного пространства.</string>
+    <string name="lfm_error_secured_space_not_folder">Путь к вашему защищенному пространству существует, но не является папкой. Пожалуйста, исправьте это вручную.</string>
+    <string name="lfm_my_secured_space_menu_item">Моё защищенное пространство</string>
+    <string name="lfm_my_secured_space_menu_item_desc">Доступ к вашим защищенным папкам</string>
+    <string name="lfm_error_manual_secured_folder_creation">Нельзя вручную создавать папки, начинающиеся с \'.userData_\'. Используйте \'Моё защищенное пространство\'.</string>
+    <string name="lfm_item_details_secured_status">Защищено</string>
+    <string name="lfm_item_details_secured">Да (Защищено аккаунтом)</string>
+
+    <string name="lfm_my_secured_space_display_name">Защищенное пространство</string> <!-- Used by LFMViewModel internally -->
+    <string name="lfm_share_error_internal_not_supported">Отправка из защищенного пространства пока не поддерживается.</string>
+    <string name="lfm_open_with_error_internal_not_supported_direct">Открытие внутренних файлов внешними приложениями требует FileProvider (еще не реализовано).</string>
+    <!-- Batch Rename -->
+    <string name="lfm_batch_rename_menu_item">Пакетное переименование</string>
+    <string name="lfm_batch_rename_dialog_title">Пакетное переименование %1$d файлов</string>
+    <string name="lfm_batch_rename_base_name_label">Базовое имя (префикс)</string>
+    <string name="lfm_batch_rename_base_name_placeholder">например, Image_ (необязательно)</string>
+    <string name="lfm_batch_rename_start_number_label">Начальный номер</string>
+    <string name="lfm_batch_rename_num_digits_label">Цифр</string>
+    <string name="lfm_batch_rename_num_digits_placeholder">напр., 3 для 001</string>
+    <string name="lfm_batch_rename_keep_extension_label">Сохранить исходное расширение</string>
+    <string name="lfm_batch_rename_example_label">Пример: %1$s</string>
+    <string name="lfm_rename_button">Переименовать</string>
+    <string name="lfm_batch_rename_no_files_selected">Файлы для пакетного переименования не выбраны.</string>
+    <string name="lfm_batch_rename_error_no_parent_dir">Не удается определить родительский каталог для переименования.</string>
+    <string name="lfm_batch_rename_error_parent_inaccessible">Родительский каталог недоступен.</string>
+    <string name="lfm_batch_rename_error_name_exists">Новое имя \'%1$s\' уже существует. Пропущен \'%2$s\'.</string>
+    <string name="lfm_batch_rename_error_single">Не удалось переименовать \'%1$s\'.</string>
+    <string name="lfm_batch_rename_error_single_exception">Ошибка при переименовании \'%1$s\': %2$s</string>
+    <string name="lfm_batch_rename_success_all">Успешно переименовано %1$d файлов.</string>
+    <string name="lfm_batch_rename_success_partial">Переименовано %1$d файлов. %2$d файлов не удалось.</string>
+    <string name="lfm_batch_rename_failure_all">Не удалось переименовать %1$d файлов.</string>
+    <string name="lfm_batch_rename_no_files_processed">Файлы для переименования не обработаны.</string>
+    <string name="lfm_batch_rename_error_invalid_digits">Количество цифр должно быть 0 или больше.</string>
+    <string name="lfm_batch_rename_custom_pattern_hint">Используйте {orig} для исходного имени (без расш.), {#} для номера, {ext} для расширения.</string>
 </resources>
