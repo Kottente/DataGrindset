@@ -4,6 +4,7 @@ agp = "8.10.0"
 androidxActivityCompose = "1.8.0"
 coreKtxVersion = "1.12.0"
 firebaseBom = "33.13.0"
+firebaseBomVersion = "33.1.0"
 kotlin = "2.0.0"
 coreKtx = "1.16.0"
 junit = "4.13.2"
@@ -16,6 +17,7 @@ lifecycleRuntimeKtxVersion = "2.7.0"
 lifecycleViewmodelCompose = "2.8.0"
 material = "1.6.7"
 navigationCompose = "2.7.7"
+playServicesAuth = "21.2.0"
 ui = "1.6.7"
 uiToolingPreview = "1.6.7"
 lifecycleRuntimeComposeAndroid = "2.9.0"
@@ -36,7 +38,10 @@ androidx-material = { module = "androidx.compose.material:material", version.ref
 androidx-material-icons-core = { module = "androidx.compose.material:material-icons-core", version.ref = "material" }
 androidx-material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version.ref = "material" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
+firebase-appcheck-playintegrity = { module = "com.google.firebase:firebase-appcheck-playintegrity" }
+firebase-auth-ktx = { module = "com.google.firebase:firebase-auth-ktx" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
+firebase-bom-v3310 = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBomVersion" }
 firebase-common-ktx = { module = "com.google.firebase:firebase-common-ktx" }
 firebase-storage-ktx = { module = "com.google.firebase:firebase-storage-ktx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -52,6 +57,7 @@ androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 ui = { module = "androidx.compose.ui:ui", version.ref = "ui" }
 ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "uiToolingPreview" }
 androidx-lifecycle-runtime-compose-android = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose-android", version.ref = "lifecycleRuntimeComposeAndroid" }

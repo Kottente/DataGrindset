@@ -47,6 +47,7 @@ android {
 }
 
 dependencies {
+
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.activity.compose.v180)
     implementation(libs.androidx.core.ktx.v1120)
@@ -61,6 +62,11 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     // Firebase
+    implementation(libs.firebase.auth.ktx)
+    //implementation(platform("com.google.firebase:firebase-bom:33.1.0")) // Or latest
+    implementation(libs.firebase.appcheck.playintegrity)
+    // For Google Sign-In (optional, but common)
+    implementation(libs.play.services.auth)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.storage.ktx)
     implementation(libs.firebase.common.ktx)

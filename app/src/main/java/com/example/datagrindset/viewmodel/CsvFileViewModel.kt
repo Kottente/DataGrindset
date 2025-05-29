@@ -2,13 +2,13 @@ package com.example.datagrindset.viewmodel
 
 import android.app.Application
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+//import com.example.datagrindset.R // Not used in this file currently
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
-import java.io.FileInputStream
 import java.io.InputStreamReader
 
 class CsvFileViewModel(
@@ -46,14 +45,18 @@ class CsvFileViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _fileSize = MutableStateFlow<Long>(0L)
+    val fileSize: StateFlow<Long> = _fileSize.asStateFlow()
+
+
     companion object {
         private const val TAG = "CsvFileViewModel"
-        private const val PREVIEW_ROW_LIMIT = 20
+        private const val PREVIEW_ROW_LIMIT = 50
     }
 
     init {
         Log.i(TAG, "--- CsvFileViewModel INIT ---")
-        Log.i(TAG, "Received URI: $initialFileUri (toString: ${initialFileUri.toString()})")
+        Log.i(TAG, "Received URI from picker: $initialFileUri")
         Log.i(TAG, "Received FileName: $initialFileName")
         loadCsvFile()
     }
@@ -69,7 +72,7 @@ class CsvFileViewModel(
                 char == '"' -> {
                     if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
                         buffer.append('"')
-                        i++
+                        i++ // Skip next quote
                     } else {
                         inQuotes = !inQuotes
                     }
@@ -84,7 +87,7 @@ class CsvFileViewModel(
             }
             i++
         }
-        fields.add(buffer.toString().trim()) // Add the last field
+        fields.add(buffer.toString().trim())
         return fields
     }
 
@@ -92,72 +95,72 @@ class CsvFileViewModel(
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
-            Log.i(TAG, "--- loadCsvFile ---")
-            Log.i(TAG, "Using URI: $initialFileUri for loading.")
-            Log.i(TAG, "Current Filename for error messages: $initialFileName")
+            _fileName.value = initialFileName
+            Log.i(TAG, "--- loadCsvFile (using ContentResolver) ---")
+            Log.i(TAG, "URI: $initialFileUri, FileName: $initialFileName")
 
             val context = getApplication<Application>()
-            var pfd: ParcelFileDescriptor? = null
             try {
-                withContext(Dispatchers.IO) {
-                    // SAF Fix: Use DocumentFile to resolve and open the file URI
+                try {
                     val docFile = DocumentFile.fromSingleUri(context, initialFileUri)
-                        ?: DocumentFile.fromTreeUri(context, initialFileUri)
-                    if (docFile == null || !docFile.canRead()) {
-                        Log.e(TAG, "DocumentFile is null or not readable for URI: $initialFileUri")
-                        withContext(Dispatchers.Main) {
-                            _error.value = "Cannot access file: $initialFileName (DocumentFile null or not readable)"
-                        }
-                        return@withContext
-                    }
-                    pfd = context.contentResolver.openFileDescriptor(docFile.uri, "r")
-                    if (pfd == null) {
-                        Log.e(TAG, "ParcelFileDescriptor is NULL for URI: ${docFile.uri}")
-                        withContext(Dispatchers.Main) {
-                            _error.value = "Failed to open file descriptor for $initialFileName (PFD was null)."
-                        }
+                    if (docFile != null && docFile.exists()) {
+                        _fileSize.value = docFile.length()
+                        Log.i(TAG, "Got file size: ${_fileSize.value} for ${docFile.name}")
                     } else {
-                        val safePfd = pfd
-                        Log.i(TAG, "SUCCESSFULLY opened ParcelFileDescriptor for URI: ${docFile.uri}. Size: ${safePfd!!.statSize}")
-                        FileInputStream(safePfd.fileDescriptor).use { fis ->
-                            BufferedReader(InputStreamReader(fis)).use { reader ->
-                                val allRows = mutableListOf<List<String>>()
-                                var line: String?
-                                var firstLine = true
-                                var maxCols = 0
+                        Log.w(TAG, "Could not get DocumentFile for size for URI: $initialFileUri.")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error getting DocumentFile for size: ${e.message}.")
+                }
 
-                                while (reader.readLine().also { line = it } != null) {
-                                    if (line.isNullOrBlank() && reader.ready().not()) continue // Skip blank lines unless it's the only line
-                                    val parsedFields = parseCsvLine(line!!)
-                                    if (parsedFields.isNotEmpty()) {
-                                        if (firstLine) {
-                                            withContext(Dispatchers.Main) { _headers.value = parsedFields }
-                                            firstLine = false
-                                        }
-                                        allRows.add(parsedFields)
-                                        if (parsedFields.size > maxCols) {
-                                            maxCols = parsedFields.size
-                                        }
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(initialFileUri)?.use { fis ->
+                        BufferedReader(InputStreamReader(fis)).use { reader ->
+                            val allRows = mutableListOf<List<String>>()
+                            var line: String?
+                            var firstLineRead = false // To ensure headers are from the first line
+                            var tempHeaders = emptyList<String>()
+                            var maxCols = 0
+
+                            while (reader.readLine().also { line = it } != null) {
+                                if (line.isNullOrBlank() && !reader.ready()) continue
+                                val parsedFields = parseCsvLine(line!!)
+                                if (parsedFields.isNotEmpty()) {
+                                    if (!firstLineRead) {
+                                        tempHeaders = parsedFields
+                                        firstLineRead = true
+                                    }
+                                    allRows.add(parsedFields)
+                                    if (parsedFields.size > maxCols) {
+                                        maxCols = parsedFields.size
                                     }
                                 }
-
-                                withContext(Dispatchers.Main) {
-                                    if (_headers.value.isNotEmpty()) {
-                                        _previewData.value = allRows.drop(1).take(PREVIEW_ROW_LIMIT)
-                                        _rowCount.value = allRows.size
-                                        _columnCount.value = _headers.value.size
-                                    } else if (allRows.isNotEmpty()) {
-                                        _previewData.value = allRows.take(PREVIEW_ROW_LIMIT)
-                                        _rowCount.value = allRows.size
-                                        _columnCount.value = maxCols
-                                        _headers.value = List(maxCols) { index -> "Col ${index + 1}" }
-                                    } else {
-                                        _rowCount.value = 0
-                                        _columnCount.value = 0
-                                    }
-                                }
-                                Log.i(TAG, "CSV content loaded. Rows: ${allRows.size}, MaxCols: $maxCols")
                             }
+
+                            withContext(Dispatchers.Main) {
+                                if (tempHeaders.isNotEmpty()) {
+                                    _headers.value = tempHeaders
+                                    _previewData.value = allRows.drop(1).take(PREVIEW_ROW_LIMIT)
+                                    _rowCount.value = allRows.size // Includes header row
+                                    _columnCount.value = tempHeaders.size
+                                } else if (allRows.isNotEmpty()) { // No header detected, but has rows
+                                    _previewData.value = allRows.take(PREVIEW_ROW_LIMIT)
+                                    _rowCount.value = allRows.size
+                                    _columnCount.value = maxCols
+                                    _headers.value = List(maxCols) { index -> "Col ${index + 1}" }
+                                } else { // Empty file
+                                    _rowCount.value = 0
+                                    _columnCount.value = 0
+                                    _headers.value = emptyList()
+                                    _previewData.value = emptyList()
+                                }
+                            }
+                            Log.i(TAG, "CSV content loaded. Total Rows (incl. header if detected): ${allRows.size}, MaxCols: $maxCols")
+                        }
+                    } ?: run {
+                        Log.e(TAG, "ContentResolver.openInputStream returned null for URI: $initialFileUri")
+                        withContext(Dispatchers.Main) {
+                            _error.value = "Failed to open file stream for $initialFileName."
                         }
                     }
                 }
@@ -168,11 +171,6 @@ class CsvFileViewModel(
                 Log.e(TAG, "Generic Exception in loadCsvFile for $initialFileUri: ${e.message}", e)
                 _error.value = "Error loading $initialFileName: ${e.localizedMessage}"
             } finally {
-                try {
-                    pfd?.close()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error closing PFD: ${e.message}", e)
-                }
                 _isLoading.value = false
                 Log.i(TAG, "--- loadCsvFile finished --- Error: ${_error.value}")
             }

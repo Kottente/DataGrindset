@@ -1,11 +1,15 @@
 package com.example.datagrindset.ui
 
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -24,6 +28,10 @@ import com.example.datagrindset.R // Import R class for resources
 import com.example.datagrindset.ui.theme.DataGrindsetTheme
 import java.util.Locale
 import androidx.core.net.toUri
+import com.example.datagrindset.viewmodel.AuthViewModel
+import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 data class AppTheme(val name: String, val description: String)
 data class AppLanguage(val code: String, val displayNameResId: Int)
@@ -37,6 +45,7 @@ val availableThemes = listOf(
     AppTheme("Strawberry & Kiwi", "Pink/Lite Green")
 )
 
+// Updated to use the new string resource names I provided
 val availableLanguages = listOf(
     AppLanguage("en", R.string.settings_lang_english),
     AppLanguage("ru", R.string.settings_lang_russian),
@@ -47,17 +56,23 @@ val availableLanguages = listOf(
 @Composable
 fun SettingsScreen(
     navController: NavController,
+    authViewModel: AuthViewModel,
     onLanguageSelected: (String) -> Unit,
     currentLanguageCode: String
 ) {
     val context = LocalContext.current
-
+    val currentUser by authViewModel.currentUser.collectAsState()
+    LaunchedEffect(currentUser) {
+        Log.d("SettingsScreen", "Current user state: UID: ${currentUser?.uid}, Email: ${currentUser?.email}, DisplayName: ${currentUser?.displayName}")
+    }
     var isUserLoggedIn by remember { mutableStateOf(false) }
     var selectedTheme by remember { mutableStateOf(availableThemes.first()) }
     var isThemeDropdownExpanded by remember { mutableStateOf(false) }
 
     val currentSelectedLanguageObject = remember(currentLanguageCode) {
-        availableLanguages.find { it.code == currentLanguageCode } ?: availableLanguages.first()
+        availableLanguages.find { it.code == currentLanguageCode }
+            ?: availableLanguages.find { it.code == Locale.getDefault().language } // Fallback to system default if current is not in list
+            ?: availableLanguages.first() // Ultimate fallback
     }
     var isLanguageDropdownExpanded by remember { mutableStateOf(false) }
 
@@ -87,35 +102,83 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(all = 16.dp),
+                .padding(all = 4.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
             // --- Authentication Section ---
             SettingsSectionTitle(title = stringResource(R.string.settings_auth_section_title))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isUserLoggedIn) {
-                    Button(onClick = {
-                        isUserLoggedIn = false
-                        Toast.makeText(context, signedOutToastText, Toast.LENGTH_SHORT).show()
-                    }) {
-                        Text(stringResource(R.string.settings_sign_out_button))
+
+
+                if (currentUser != null) {
+                    val user = currentUser!!
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .padding(all = 4.dp)
+                        //.verticalScroll(rememberScrollState()), // Added for scrollability
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_profile_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        user.displayName?.let { nickname ->
+                            if (nickname.isNotBlank()) {
+                                Text("${stringResource(R.string.settings_profile_nickname_label)}: $nickname")
+                            }
+                        }
+                        user.email?.let { email ->
+                            Text("${stringResource(R.string.settings_profile_email_label)}: $email")
+                        }
+                        // Optionally, show UID for debugging or if nickname is blank
+                        if (user.displayName.isNullOrBlank()) {
+                            Text("${stringResource(R.string.settings_profile_uid_label)}: ${user.uid}")
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Button(
+                            onClick = {
+                                authViewModel.signOut()
+                                Toast.makeText(context, signedOutToastText, Toast.LENGTH_SHORT)
+                                    .show()
+                                // Navigate to login screen after sign out
+                                navController.navigate("login") {
+                                    popUpTo("fileManager") {
+                                        inclusive = true
+                                    } // Clear fileManager and everything above
+                                    launchSingleTop = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(stringResource(R.string.settings_sign_out_button))
+                        }
                     }
                 } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                     Button(onClick = {
-                        Toast.makeText(context, signInPlaceholderToastText, Toast.LENGTH_SHORT).show()
+                        navController.navigate("login") {
+                            // Optional: popUpTo("settings") { inclusive = true } to remove settings from backstack
+                        }
                     }) {
                         Text(stringResource(R.string.settings_sign_in_button))
                     }
                     OutlinedButton(onClick = {
-                        Toast.makeText(context, signUpPlaceholderToastText, Toast.LENGTH_SHORT).show()
+                        navController.navigate("signup") {
+                            // Optional: popUpTo("settings") { inclusive = true }
+                        }
                     }) {
                         Text(stringResource(R.string.settings_sign_up_button))
                     }
                 }
-            }
+
+        }
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
             // --- Theme Selection Section ---
@@ -136,7 +199,6 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     availableThemes.forEach { theme ->
-                        // Resolve formatted string outside lambda if possible, or pass args to Toast
                         val themeAppliedText = stringResource(R.string.settings_theme_applied_toast, theme.name)
                         DropdownMenuItem(
                             text = { Text("${theme.name} (${theme.description})") },
@@ -169,15 +231,13 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     availableLanguages.forEach { language ->
-                       // val languageDisplayName = stringResource(language.displayNameResId)
-                        //val langSetToastText = stringResource(R.string.settings_lang_set_toast, languageDisplayName)
                         DropdownMenuItem(
                             text = { Text(stringResource(language.displayNameResId)) },
                             onClick = {
                                 isLanguageDropdownExpanded = false
                                 if (language.code != currentLanguageCode) {
                                     onLanguageSelected(language.code)
-                                    //Toast.makeText(context, langSetToastText, Toast.LENGTH_LONG).show()
+                                    // Consider showing a toast after language change is fully applied by activity recreation
                                 }
                             }
                         )
@@ -190,8 +250,8 @@ fun SettingsScreen(
             SettingsSectionTitle(title = stringResource(R.string.settings_support_section_title))
             Button(
                 onClick = {
-                    val email = "vusmailed@mail.ru"
-                    val subject = "App Support Request"
+                    val email = "vusmailed@mail.ru" // Keep your actual email
+                    val subject = "App Support Request" // Or make this a string resource
                     val intent = Intent(Intent.ACTION_SENDTO).apply {
                         data = "mailto:".toUri()
                         putExtra(Intent.EXTRA_EMAIL, arrayOf(email))
@@ -221,38 +281,45 @@ fun SettingsSectionTitle(title: String) {
     )
 }
 
-@Preview(showBackground = true, name = "Settings Screen (English)", locale = "en")
-@Composable
-fun SettingsScreenPreviewEnglish() {
-    DataGrindsetTheme {
-        SettingsScreen(
-            navController = rememberNavController(),
-            onLanguageSelected = {},
-            currentLanguageCode = "en"
-        )
-    }
-}
-
-@Preview(showBackground = true, name = "Settings Screen (Russian)", locale = "ru")
-@Composable
-fun SettingsScreenPreviewRussian() {
-    DataGrindsetTheme {
-        SettingsScreen(
-            navController = rememberNavController(),
-            onLanguageSelected = {},
-            currentLanguageCode = "ru"
-        )
-    }
-}
-
-@Preview(showBackground = true, name = "Settings Screen (Greek)", locale = "el")
-@Composable
-fun SettingsScreenPreviewGreek() {
-    DataGrindsetTheme {
-        SettingsScreen(
-            navController = rememberNavController(),
-            onLanguageSelected = {},
-            currentLanguageCode = "el"
-        )
-    }
-}
+//@Preview(showBackground = true, name = "Settings Screen (Logged In)", locale = "en")
+//@Composable
+//fun SettingsScreenPreviewLoggedIn() {
+//    // Fake AuthViewModel for preview
+//    class FakeAuthViewModel(app: Application) : AuthViewModel(app) {
+//        private val _fakeUser = MutableStateFlow<FirebaseUser?>(
+//            object : FirebaseUser() {
+//                override fun getEmail(): String = "preview@example.com"
+//                override fun getUid(): String = "fakeuid"
+//                // Implement other necessary abstract members if any, or use a mock framework
+//            }
+//        )
+//        override val currentUser: StateFlow<FirebaseUser?> = _fakeUser
+//    }
+//    val context = LocalContext.current
+//    DataGrindsetTheme {
+//        SettingsScreen(
+//            navController = rememberNavController(),
+//            authViewModel = FakeAuthViewModel(context.applicationContext as Application),
+//            onLanguageSelected = {},
+//            currentLanguageCode = "en"
+//        )
+//    }
+//}
+//
+//@Preview(showBackground = true, name = "Settings Screen (Logged Out)", locale = "en")
+//@Composable
+//fun SettingsScreenPreviewLoggedOut() {
+//    class FakeAuthViewModelLoggedOut(app: Application) : AuthViewModel(app) {
+//        private val _fakeUser = MutableStateFlow<FirebaseUser?>(null)
+//        override val currentUser: StateFlow<FirebaseUser?> = _fakeUser
+//    }
+//    val context = LocalContext.current
+//    DataGrindsetTheme {
+//        SettingsScreen(
+//            navController = rememberNavController(),
+//            authViewModel = FakeAuthViewModelLoggedOut(context.applicationContext as Application),
+//            onLanguageSelected = {},
+//            currentLanguageCode = "en"
+//        )
+//    }
+//}
