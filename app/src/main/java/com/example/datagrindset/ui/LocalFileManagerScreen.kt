@@ -494,7 +494,7 @@ fun LocalFileManagerScreen(
                                 DropdownMenuItem(text = { Text(stringResource(R.string.lfm_action_details)) }, onClick = { onShowItemDetails(); showBottomBarMoreOptionsMenu = false })
                                 // Batch Rename Menu Item
                                 val selectedFilesCount = selectedItems.count { it is DirectoryEntry.FileEntry }
-                                if (selectedFilesCount > 0) { // Show only if at least one file is selected
+                                if (selectedFilesCount > 0) {
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.lfm_batch_rename_menu_item)) },
                                         onClick = {
@@ -605,7 +605,7 @@ fun GridFolderItem(
                 tint = MaterialTheme.colorScheme.secondary
             )
             Text(
-                folderEntry.name, // This will be "My Secured Space" for the root
+                folderEntry.name, // "My Secured Space" for the root
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -642,7 +642,7 @@ fun GridFileItem(
                 if (isSelectionModeActive) {
                     Checkbox(
                         checked = isSelected,
-                        onCheckedChange = { onItemClick() }, // Simplified for grid
+                        onCheckedChange = { onItemClick() },
                         modifier = Modifier.align(Alignment.TopStart).size(24.dp)
                     )
                 }
@@ -795,88 +795,18 @@ fun SortOption.toDisplayStringRes(): Int {
 
 // --- Preview Setup ---
 class PreviewLocalFileManagerViewModel(application: Application, initialUser: FirebaseUser?) : LocalFileManagerViewModel(application, MutableStateFlow(initialUser)) {
-    // You can override methods here if needed for specific preview states
+
 }
 
 class PreviewLocalFileManagerViewModelFactory(
     private val application: Application,
-    private val initialUser: FirebaseUser? = null // Default to no user for previews
+    private val initialUser: FirebaseUser? = null
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(LocalFileManagerViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            // Use the PreviewLocalFileManagerViewModel or the real one if it can handle null currentUserState for preview
             return PreviewLocalFileManagerViewModel(application, initialUser) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class for Preview")
     }
 }
-//
-//@Preview(showBackground = true, name = "File Manager - List View (Logged In)")
-//@Composable
-//fun LocalFileManagerScreenListPreviewLoggedIn() {
-//    val context = LocalContext.current
-//    val previewViewModel: LocalFileManagerViewModel = viewModel(
-//        factory = PreviewLocalFileManagerViewModelFactory(context.applicationContext as Application, PreviewFirebaseUser())
-//    )
-//    DataGrindsetTheme {
-//        LocalFileManagerScreen(
-//            navController = rememberNavController(),
-//            viewModel = previewViewModel,
-//            rootUriIsSelected = true,
-//            currentDirectoryUri = Uri.parse("content://preview/current"),
-//            canNavigateUp = true,
-//            currentPath = "Preview > Current Folder",
-//            entries = listOf(
-//                DirectoryEntry.FolderEntry("folder_secured_id", LocalFileManagerViewModel.MY_SECURED_SPACE_DISPLAY_NAME, Uri.parse("content://preview/secured"), 0, isSecuredUserDataRoot = true),
-//                DirectoryEntry.FolderEntry("folder1_id", "My Folder", Uri.parse("content://preview/folder1"), 2),
-//                DirectoryEntry.FileEntry("file1_id", "MyFile.txt", Uri.parse("content://preview/file1"), 1024, System.currentTimeMillis(), "text/plain")
-//            ),
-//            fileProcessingStatusMap = emptyMap(), searchText = "", onSearchTextChanged = {},
-//            currentSortOption = SortOption.BY_NAME_ASC, onSortOptionSelected = {},
-//            onSelectRootDirectoryClicked = {}, onNavigateToFolder = {}, onNavigateUp = {},
-//            navigateToAnalysisTarget = null, onDidNavigateToAnalysisScreen = {},
-//            suggestExternalAppForFile = null, onDidAttemptToOpenWithExternalApp = {},
-//            onPrepareFileForAnalysis = {}, isSelectionModeActive = false, selectedItems = emptySet(),
-//            selectedItemsUris = emptySet(), selectedItemsCount = 0, onToggleItemSelected = {},
-//            onEnterSelectionMode = {}, onExitSelectionMode = {}, onSelectAll = {}, onDeselectAll = {},
-//            onShareSelected = {}, onCutSelected = {}, onCopySelected = {},
-//            onRequestArchiveSelectedItems = {}, onRequestExtractArchive = {},
-//            onOpenSelectedWithAnotherApp = {}, onShowItemDetails = {}, onDeleteSelectedItems = {},
-//            itemDetailsToShow = null, onDismissItemDetails = {}, showCreateFolderDialog = false,
-//            onRequestShowCreateFolderDialog = {}, onDismissCreateFolderDialog = {}, onCreateFolder = {},
-//            clipboardHasItems = false, onPaste = {}, onInitiateMoveExternal = {},
-//            viewType = ViewType.LIST, onToggleViewType = {},
-//            showArchiveNameDialog = null, onDismissArchiveNameDialog = {}, onConfirmArchiveCreation = {},
-//            showExtractOptionsDialog = null, onDismissExtractOptionsDialog = {},
-//            onExtractToCurrentFolder = {}, onInitiateExtractToAnotherFolder = {},
-//            onNavigateToMySecuredSpace = {}, isUserLoggedIn = true // Preview as logged in
-//        )
-//    }
-//}
-
-// Minimalistic FirebaseUser mock for previews
-//private class PreviewFirebaseUser(
-//    private val _email: String? = "preview@example.com",
-//    private val _uid: String = "previewUserUid123",
-//    private val _displayName: String? = "Preview User"
-//) : FirebaseUser() {
-//    override fun getEmail(): String? = _email
-//    override fun getUid(): String = _uid
-//    override fun isAnonymous(): Boolean = false
-//    override fun isEmailVerified(): Boolean = true
-//    override fun getDisplayName(): String? = _displayName
-//    override fun getPhoneNumber(): String? = null
-//    override fun getPhotoUrl(): Uri? = null
-//    override fun getProviderId(): String = "firebase"
-//    override fun getProviderData(): MutableList<out UserInfo> = mutableListOf()
-//    override fun zzr(): FirebaseUser = this
-//    override fun zzs(): MutableList<String> = mutableListOf()
-//    override fun zzf(): String = ""
-//    override fun zzg(): com.google.android.gms.internal.firebase-auth-api.zzagx = throw NotImplementedError("Preview only")
-//    override fun zzh() {}
-//    override fun zzi(p0: MutableList<out UserInfo>) { throw NotImplementedError("Preview only") }
-//    override fun zzj(): String = ""
-//    override fun zzk(): String = ""
-//    override fun zzl(): Boolean = false
-//}

@@ -306,7 +306,6 @@ class MainActivity : ComponentActivity() {
                                 val intent =
                                     packageManager.getLaunchIntentForPackage(packageName)?.apply {
                                         addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        // Preserve guest navigation state if any
                                         if (currentUser == null && startDestination == "fileManager") {
                                             putExtra("NAVIGATE_TO_FILE_MANAGER_GUEST", true)
                                         }
@@ -327,23 +326,13 @@ class MainActivity : ComponentActivity() {
         }
 
     }
-    override fun onNewIntent(intent: Intent) { // Intent should be non-nullable
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent) // Update the activity's intent
+        setIntent(intent)
 
-        // Logic for handling NAVIGATE_TO_FILE_MANAGER_GUEST after activity recreation (e.g., language change)
-        // This will be re-evaluated in onCreate with the new intent.
-        // If you need more immediate navigation changes here, it gets more complex
-        // as NavController might not be immediately available or in the right state.
-        // For now, relying on onCreate's startDestination logic with the updated intent is simpler.
+
         if (intent.getBooleanExtra("NAVIGATE_TO_FILE_MANAGER_GUEST", false) && authViewModel.currentUser.value == null) {
             Log.d("MainActivity", "onNewIntent: Guest navigation flag received. Activity will restart and check in onCreate.")
-            // Potentially recreate or re-evaluate navigation if needed immediately,
-            // but often just letting onCreate handle it with the new intent is fine.
-            // For instance, if the NavHost is already set up, you might navigate:
-            // findNavController(R.id.your_nav_host_fragment_id_if_using_fragments).navigate(R.id.fileManagerScreen)
-            // However, with Jetpack Compose Navigation, this is typically handled by recomposition
-            // based on state that NavHost observes, or by restarting the activity cleanly.
         }
     }
     private fun handleGoogleSignInResult(completedTask: Task<GoogleSignInAccount>) {
@@ -352,7 +341,7 @@ class MainActivity : ComponentActivity() {
             val account = completedTask.getResult(ApiException::class.java)
             val idToken = account?.idToken
             if (idToken != null) {
-                Log.i(TAG, "Google Sign In successful, got ID token.") // Token removed for security
+                Log.i(TAG, "Google Sign In successful, got ID token.")
                 authViewModel.signInWithGoogleToken(idToken)
             } else {
                 Log.w(TAG, "Google Sign In successful, but ID token was null. Account: ${account?.email}")
@@ -361,8 +350,6 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: ApiException) {
             Log.e(TAG, "Google Sign In failed with ApiException: Status Code: ${e.statusCode}, message: ${e.message}", e)
-            // Specific error codes can be checked here, e.g., CommonStatusCodes.NETWORK_ERROR (7), CommonStatusCodes.SIGN_IN_REQUIRED (4)
-            // For statusCode 10 (DEVELOPER_ERROR), it's almost certainly a configuration issue (SHA-1, client ID, package name)
             var errorMsg = "Google Sign In failed: ${e.localizedMessage} (Code: ${e.statusCode})"
             if (e.statusCode == com.google.android.gms.common.api.CommonStatusCodes.DEVELOPER_ERROR) {
                 errorMsg += "\nThis is often a configuration issue (SHA-1, Web Client ID, package name in console)."
@@ -382,9 +369,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Check if user is signed in (non-null) and update UI accordingly.
-        // This is more for traditional views, with Compose it's handled by state.
-        // But good for logging.
         val currentUser = authViewModel.currentUser.value
         Log.d(TAG, "onStart: Current user UID: ${currentUser?.uid}")
     }

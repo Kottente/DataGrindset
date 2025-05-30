@@ -50,20 +50,18 @@ sealed class DirectoryEntry(open val id: String, open val name: String, open val
         override val name: String,
         override val uri: Uri,
         val childCount: Int,
-        val isSecuredUserDataRoot: Boolean = false // Flag for user's own .userData_UID folder
+        val isSecuredUserDataRoot: Boolean = false
     ) : DirectoryEntry(id, name, uri)
 }
 data class BatchRenameDialogState(
     val baseName: String = "",
     val startNumber: String = "1",
-    val numDigits: String = "0", // 0 or empty means no padding
+    val numDigits: String = "0",
     val keepExtension: Boolean = true,
-    val itemsToRenameCount: Int = 0 // To show in dialog title
+    val itemsToRenameCount: Int = 0
 )
 
-/**
- * Options passed to the actual renaming function after dialog confirmation.
- */
+
 data class PerformBatchRenameOptions(
     val baseName: String,
     val startNumber: Int,
@@ -75,11 +73,11 @@ data class PerformBatchRenameOptions(
 data class ItemDetails(
     val name: String,
     val path: String,
-    val type: String, // "Folder" or "File"
-    val size: Long?, // Null for folders
+    val type: String,
+    val size: Long?,
     val dateModified: Long?,
-    val mimeType: String?, // Null for folders
-    val childrenCount: Int?, // Null for files
+    val mimeType: String?,
+    val childrenCount: Int?,
     val isReadable: Boolean,
     val isWritable: Boolean,
     val isHidden: Boolean,
@@ -224,7 +222,6 @@ open class LocalFileManagerViewModel(
         var isInsideSecuredSpace = false
 
         for (uriSegment in stack) {
-            // For stack URIs representing directories, fromTreeUri is appropriate
             val segmentDocFile = DocumentFile.fromTreeUri(context, uriSegment)
             val segmentName = segmentDocFile?.name
             if (segmentName != null) {
@@ -508,7 +505,6 @@ open class LocalFileManagerViewModel(
             _selectedItems.value.forEach { entry ->
                 try {
                     val docFile = if (entry is DirectoryEntry.FolderEntry && entry.isSecuredUserDataRoot) {
-                        // For "My Secured Space", we need to get the actual DocumentFile using its real name
                         val uid = currentUserId.value
                         if (uid != null) {
                             val appRootUri = _rootTreeUri.value
@@ -558,7 +554,6 @@ open class LocalFileManagerViewModel(
     fun shareSelectedItems() {
         val selectedUrisToShare = _selectedItems.value.map {
             if (it is DirectoryEntry.FolderEntry && it.isSecuredUserDataRoot) {
-                // Need to get the actual URI if "My Secured Space" is selected
                 val uid = currentUserId.value
                 if (uid != null) {
                     val appRootUri = _rootTreeUri.value
@@ -605,7 +600,7 @@ open class LocalFileManagerViewModel(
     fun getItemDetailsForSelected() {
         if (_selectedItems.value.size == 1) {
             val entry = _selectedItems.value.first()
-            val docFile = DocumentFile.fromTreeUri(context, entry.uri) // This might be an issue for "My Secured Space" as its URI is the actual one
+            val docFile = DocumentFile.fromTreeUri(context, entry.uri)
 
             if (docFile != null) {
                 val isUserSecuredRoot = entry is DirectoryEntry.FolderEntry && entry.isSecuredUserDataRoot
@@ -649,13 +644,11 @@ open class LocalFileManagerViewModel(
             try {
                 if (folderName.startsWith(USER_DATA_ROOT_PREFIX)) {
                     val currentUid = currentUserId.value
-                    // Check if trying to create a secured folder manually at the app root
                     if (parentUri == _rootTreeUri.value && folderName != "$USER_DATA_ROOT_PREFIX$currentUid") {
                         _toastMessageEvent.tryEmit(context.getString(R.string.lfm_error_manual_secured_folder_creation))
                         return@launch
                     }
-                    // Allow creation if inside user's own secured space (parentUri is already the secured space)
-                    // Or if it's the auto-creation of the user's root, which is handled by ensureAndGetUserDataRoot
+
                 }
 
                 val newFolder = parentDocFile?.createDirectory(folderName)
@@ -704,13 +697,8 @@ open class LocalFileManagerViewModel(
                         Log.w(TAG, "Skipping paste: source $sourceUri is same or parent of target $targetDirUri")
                         errorOccurred = true; continue
                     }
-                    // For source URIs from clipboard, they might be single or tree.
-                    // If it's a directory, fromTreeUri is fine. If a file, fromSingleUri.
-                    // DocumentFile.fromTreeUri can sometimes work for single files if permissions are broad.
-                    // However, to be safe, if we know it's a file, fromSingleUri is better.
-                    // Since clipboardUris are just URIs, we don't know their type yet.
-                    // The copyDocument function will handle this.
-                    val sourceDoc = DocumentFile.fromTreeUri(context, sourceUri) // Or fromSingleUri if known to be file
+
+                    val sourceDoc = DocumentFile.fromTreeUri(context, sourceUri)
                     if (sourceDoc == null) {
                         Log.w(TAG, "Skipping paste: Could not access sourceDoc for $sourceUri")
                         errorOccurred = true; continue
@@ -910,13 +898,13 @@ open class LocalFileManagerViewModel(
     fun extractArchiveToCurrentFolder() {
         val zipFileEntry = _showExtractOptionsDialog.value ?: return
         val targetDirUri = _currentFolderUri.value ?: _rootTreeUri.value ?: return
-        dismissExtractOptionsDialog() // Dismiss before starting long operation
+        dismissExtractOptionsDialog()
         performExtraction(zipFileEntry, targetDirUri)
     }
 
     fun initiateExtractArchiveToAnotherFolder() {
         val zipFileEntry = _showExtractOptionsDialog.value ?: return
-        dismissExtractOptionsDialog() // Dismiss before launching picker
+        dismissExtractOptionsDialog()
         _launchDirectoryPickerForExtractionEvent.tryEmit(zipFileEntry)
     }
 
@@ -978,7 +966,7 @@ open class LocalFileManagerViewModel(
                                 val existingFile = currentTargetDirDoc.findFile(finalEntryName)
                                 if (existingFile != null && existingFile.isFile) {
                                     Log.w(TAG, "File $finalEntryName already exists in ${currentTargetDirDoc.uri}, overwriting.")
-                                    existingFile.delete() // Delete to overwrite
+                                    existingFile.delete()
                                 }
                                 val newFileDoc = currentTargetDirDoc.createFile(
                                     MimeTypeMapHelper.getMimeTypeFromExtension(finalEntryName),
@@ -999,12 +987,12 @@ open class LocalFileManagerViewModel(
                 } ?: Log.e(TAG, "Could not open input stream for zip file: ${zipFileEntry.uri}")
 
                 _toastMessageEvent.tryEmit(context.getString(R.string.lfm_extract_success_toast, zipFileEntry.name))
-                fetchDirectoryEntries(targetParentDirUri) // Refresh the directory where extraction happened
+                fetchDirectoryEntries(targetParentDirUri)
             } catch (e: Exception) {
                 Log.e(TAG, "Error extracting archive '${zipFileEntry.name}' to '$targetParentDirUri'", e)
                 _toastMessageEvent.tryEmit(context.getString(R.string.lfm_extract_error_toast, e.localizedMessage ?: "Unknown error"))
             } finally {
-                exitSelectionMode() // Ensure selection mode is exited
+                exitSelectionMode()
             }
         }
     }
@@ -1023,7 +1011,7 @@ open class LocalFileManagerViewModel(
 
     fun performBatchRename(options: PerformBatchRenameOptions) {
         val itemsToRename = _selectedItems.value.filterIsInstance<DirectoryEntry.FileEntry>()
-            .sortedBy { it.name } // Sort for consistent numbering
+            .sortedBy { it.name }
 
         if (itemsToRename.isEmpty()) {
             _toastMessageEvent.tryEmit(context.getString(R.string.lfm_batch_rename_no_files_selected))
@@ -1072,12 +1060,11 @@ open class LocalFileManagerViewModel(
                 val finalNewName = if (options.keepOriginalExtension) {
                     newNameWithoutExt + originalExtension
                 } else {
-                    newNameWithoutExt // No extension or user needs to add it in baseName
+                    newNameWithoutExt
                 }
 
                 if (finalNewName == fileEntry.name) { // No actual change
                     Log.i(TAG, "Batch rename: Skipping ${fileEntry.name} as new name is identical.")
-                    // Consider it a success if no change needed, or a skip. For now, let's count as success.
                     successCount++
                     return@forEachIndexed
                 }
